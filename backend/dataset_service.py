@@ -6,7 +6,6 @@ import os
 import json
 import shutil
 import zipfile
-import math
 from pathlib import Path
 from mutagen.mp3 import MP3
 
@@ -179,29 +178,45 @@ def validate_dataset():
     return results
 
 
-def recommend_repeat_count(num_samples, max_steps=5000):
-    """Recommend a repeat_count based on number of samples."""
-    if num_samples <= 0:
-        return 2000
-    count = max(100, math.ceil(max_steps / num_samples))
-    return min(count, 10000)
+def convert_to_hf_dataset(output_name="lora_dataset"):
+    """
+    Convert raw data files to HuggingFace dataset format (Flask context version).
+    """
+    work_dir = get_work_dir()
+    return convert_to_hf_dataset_standalone(work_dir, output_name)
 
 
-def convert_to_hf_dataset(repeat_count=2000, output_name="lora_dataset"):
+def convert_to_hf_dataset_standalone(work_dir, output_name="lora_dataset", progress_callback=None):
     """
     Convert raw data files to HuggingFace dataset format.
-    Uses the same logic as ACE-Step's convert2hf_dataset.py.
+    Standalone version — no Flask context needed, safe for background threads.
+    No duplication — stores one row per sample. Repetition is handled by
+    PyTorch Lightning's epoch loop (epochs=-1, max_steps=N).
     """
-    data_dir = get_data_dir()
-    output_path = os.path.join(get_datasets_dir(), output_name)
+    data_dir = os.path.join(work_dir, "data")
+    datasets_dir = os.path.join(work_dir, "datasets")
+    os.makedirs(datasets_dir, exist_ok=True)
+    output_path = os.path.join(datasets_dir, output_name)
+
+    def progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+
+    progress("Scanning data files...")
 
     # Import datasets library
     from datasets import Dataset
 
     data_path = Path(data_dir)
     all_examples = []
+    mp3_files = sorted(data_path.glob("*.mp3"))
 
-    for song_path in sorted(data_path.glob("*.mp3")):
+    if not mp3_files:
+        return {"success": False, "error": "No MP3 files found in data directory"}
+
+    progress(f"Found {len(mp3_files)} audio files, reading captions...")
+
+    for i, song_path in enumerate(mp3_files):
         prompt_path = str(song_path).replace(".mp3", "_prompt.txt")
         lyric_path = str(song_path).replace(".mp3", "_lyrics.txt")
         try:
@@ -224,21 +239,50 @@ def convert_to_hf_dataset(repeat_count=2000, output_name="lora_dataset"):
                 "recaption": {},
             }
             all_examples.append(example)
-        except Exception as e:
+        except Exception:
             continue
 
     if not all_examples:
-        return {"success": False, "error": "No valid samples found in data directory"}
+        return {"success": False, "error": "No valid samples found (need .mp3 + _prompt.txt + _lyrics.txt)"}
 
-    ds = Dataset.from_list(all_examples * repeat_count)
-    ds.save_to_disk(output_path)
+    progress(f"Building dataset: {len(all_examples)} samples (no duplication)...")
+
+    hf_dataset = Dataset.from_list(all_examples)
+
+    progress(f"Saving {len(all_examples)} rows to disk...")
+
+    # On Windows, HF Datasets memory-maps Arrow files which holds file locks,
+    # so rmtree/overwrite of an existing dataset fails with Errno 22.
+    # Strategy: save to a temp path, then swap via rename.
+    tmp_new = output_path + "_new_tmp"
+    if os.path.exists(tmp_new):
+        shutil.rmtree(tmp_new, ignore_errors=True)
+
+    hf_dataset.save_to_disk(tmp_new)
+
+    # Swap: move old out of the way, move new into place
+    tmp_old = output_path + "_old_tmp"
+    if os.path.exists(tmp_old):
+        shutil.rmtree(tmp_old, ignore_errors=True)
+    if os.path.exists(output_path):
+        try:
+            os.rename(output_path, tmp_old)
+        except OSError:
+            # Old dir is locked — delete what we can, it will be cleaned up next time
+            shutil.rmtree(output_path, ignore_errors=True)
+    os.rename(tmp_new, output_path)
+
+    # Best-effort cleanup of old dir
+    if os.path.exists(tmp_old):
+        shutil.rmtree(tmp_old, ignore_errors=True)
+
+    progress("Done")
 
     return {
         "success": True,
         "path": output_path,
         "num_samples": len(all_examples),
-        "repeat_count": repeat_count,
-        "total_rows": len(all_examples) * repeat_count,
+        "total_rows": len(all_examples),
     }
 
 
@@ -246,6 +290,13 @@ def get_dataset_info(dataset_name="lora_dataset"):
     """Get info about an existing HF dataset."""
     dataset_path = os.path.join(get_datasets_dir(), dataset_name)
     if not os.path.exists(dataset_path):
+        return None
+
+    # Check for valid HF dataset marker files
+    has_state = os.path.exists(os.path.join(dataset_path, "state.json"))
+    has_info = os.path.exists(os.path.join(dataset_path, "dataset_info.json"))
+    if not (has_state or has_info):
+        # Empty or corrupt directory — not a valid dataset
         return None
 
     try:
@@ -256,7 +307,6 @@ def get_dataset_info(dataset_name="lora_dataset"):
             "path": dataset_path,
             "total_rows": len(ds),
             "unique_samples": len(unique_keys),
-            "repeat_count": len(ds) // max(len(unique_keys), 1),
             "sample_keys": sorted(unique_keys),
         }
     except Exception as e:

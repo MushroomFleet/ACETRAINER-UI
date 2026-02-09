@@ -4,10 +4,19 @@ Dataset API — Flask Blueprint for dataset CRUD, validation, conversion, and ZI
 
 import os
 import tempfile
+import threading
 from flask import Blueprint, request, jsonify, current_app, send_file
 from backend import dataset_service as ds
 
 dataset_bp = Blueprint("dataset", __name__)
+
+# ===== Background conversion state =====
+_convert_state = {
+    "running": False,
+    "progress": "",
+    "result": None,
+    "error": None,
+}
 
 
 @dataset_bp.route("/upload", methods=["POST"])
@@ -63,30 +72,84 @@ def validate():
 
 @dataset_bp.route("/convert", methods=["POST"])
 def convert():
-    """Convert raw data files to HuggingFace dataset format."""
+    """
+    Start dataset conversion in a background thread.
+    Returns immediately with status. Poll /convert-status for progress.
+    """
+    global _convert_state
+
+    if _convert_state["running"]:
+        return jsonify({"success": False, "error": "Conversion already in progress"}), 409
+
     body = request.get_json() or {}
-    repeat_count = body.get("repeat_count", 2000)
     output_name = body.get("output_name", "lora_dataset")
 
-    result = ds.convert_to_hf_dataset(repeat_count=repeat_count, output_name=output_name)
-    return jsonify(result)
+    # Capture app config values we need inside the thread
+    work_dir = current_app.config["WORK_DIR"]
+
+    # Reset state
+    _convert_state["running"] = True
+    _convert_state["progress"] = "Starting conversion..."
+    _convert_state["result"] = None
+    _convert_state["error"] = None
+
+    def run_conversion():
+        global _convert_state
+        try:
+            _convert_state["progress"] = "Reading data files..."
+            result = ds.convert_to_hf_dataset_standalone(
+                work_dir=work_dir,
+                output_name=output_name,
+                progress_callback=lambda msg: _convert_state.update({"progress": msg}),
+            )
+            _convert_state["result"] = result
+            _convert_state["progress"] = "Done"
+        except Exception as e:
+            _convert_state["error"] = str(e)
+            _convert_state["progress"] = f"Error: {e}"
+        finally:
+            _convert_state["running"] = False
+
+    # Use a plain OS thread — eventlet's tpool/greenlets conflict with
+    # HF Datasets' internal file I/O on small datasets (greenlet switch error).
+    t = threading.Thread(target=run_conversion, daemon=True)
+    t.start()
+
+    return jsonify({"success": True, "status": "started"})
+
+
+@dataset_bp.route("/convert-status", methods=["GET"])
+def convert_status():
+    """Poll for conversion progress."""
+    return jsonify({
+        "running": _convert_state["running"],
+        "progress": _convert_state["progress"],
+        "result": _convert_state["result"],
+        "error": _convert_state["error"],
+    })
 
 
 @dataset_bp.route("/info", methods=["GET"])
 def dataset_info():
     """Get info about a converted HF dataset."""
     name = request.args.get("name", "lora_dataset")
-    info = ds.get_dataset_info(name)
-    if info is None:
-        return jsonify({"error": "Dataset not found"}), 404
-    return jsonify(info)
+    try:
+        info = ds.get_dataset_info(name)
+        if info is None:
+            return jsonify({"found": False}), 200  # Not 404 — just not converted yet
+        return jsonify({"found": True, **info})
+    except Exception as e:
+        return jsonify({"found": False, "error": str(e)}), 200
 
 
 @dataset_bp.route("/list", methods=["GET"])
 def list_datasets():
     """List all converted HF datasets."""
-    datasets = ds.list_datasets()
-    return jsonify({"datasets": datasets})
+    try:
+        datasets = ds.list_datasets()
+        return jsonify({"datasets": datasets})
+    except Exception as e:
+        return jsonify({"datasets": [], "error": str(e)}), 500
 
 
 @dataset_bp.route("/clear", methods=["DELETE"])
@@ -94,15 +157,6 @@ def clear():
     """Clear the data working directory."""
     ds.clear_data_dir()
     return jsonify({"success": True})
-
-
-@dataset_bp.route("/recommend-repeat", methods=["GET"])
-def recommend_repeat():
-    """Get recommended repeat_count based on sample count."""
-    num_samples = request.args.get("num_samples", 0, type=int)
-    max_steps = request.args.get("max_steps", 5000, type=int)
-    count = ds.recommend_repeat_count(num_samples, max_steps)
-    return jsonify({"repeat_count": count})
 
 
 @dataset_bp.route("/save-sample", methods=["POST"])

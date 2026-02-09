@@ -9,6 +9,7 @@ import json
 import time
 import subprocess
 import threading
+import eventlet
 
 
 class TrainerService:
@@ -98,14 +99,15 @@ class TrainerService:
             "--exp_name", config.get("exp_name", "lora_experiment"),
             "--learning_rate", str(config.get("learning_rate", 1e-4)),
             "--max_steps", str(self.max_steps),
-            "--precision", config.get("precision", "bf16-mixed"),
+            "--precision", config.get("precision", "bf16-true"),
             "--accumulate_grad_batches", str(config.get("accumulate_grad_batches", 1)),
             "--gradient_clip_val", str(config.get("gradient_clip_val", 0.5)),
             "--gradient_clip_algorithm", config.get("gradient_clip_algorithm", "norm"),
             "--shift", str(config.get("shift", 3.0)),
-            "--num_workers", str(config.get("num_workers", 4)),
+            "--num_workers", "0",  # Must be 0 on Windows (py3langid can't pickle across workers)
             "--every_n_train_steps", str(config.get("save_every", 500)),
             "--every_plot_step", str(config.get("plot_every", 1000)),
+            "--save_top_k", str(config.get("save_top_k", 2)),
             "--lora_config_path", lora_config_path,
             "--devices", "1",
             "--logger_dir", logger_dir,
@@ -121,10 +123,12 @@ class TrainerService:
 
         try:
             env = os.environ.copy()
-            self.process = subprocess.Popen(
+            # Use the stdlib subprocess (not eventlet-patched) to avoid blocking
+            import subprocess as _subprocess
+            self.process = _subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stdout=_subprocess.PIPE,
+                stderr=_subprocess.STDOUT,
                 text=True,
                 bufsize=1,
                 cwd=acestep_dir,
@@ -133,13 +137,10 @@ class TrainerService:
             self.is_running = True
             self.config["logger_dir"] = logger_dir
 
-            # Start log streaming thread
-            self._log_thread = threading.Thread(target=self._stream_output, daemon=True)
-            self._log_thread.start()
-
-            # Start GPU monitoring thread
-            self._gpu_thread = threading.Thread(target=self._poll_gpu, daemon=True)
-            self._gpu_thread.start()
+            # Use eventlet greenlets for log streaming and GPU polling
+            # _stream_output uses tpool for the blocking readline, then yields
+            eventlet.spawn_n(self._stream_output)
+            eventlet.spawn_n(self._poll_gpu)
 
             return {"success": True, "pid": self.process.pid}
 
@@ -161,51 +162,131 @@ class TrainerService:
             return {"success": True}
         return {"success": False, "error": "No training in progress"}
 
+    @staticmethod
+    def _is_progress_bar(line):
+        """Detect HuggingFace/tqdm progress bars and download spinners."""
+        # Lines that are mostly progress bar characters
+        if not line or len(line) < 3:
+            return True
+        # tqdm-style: "  5%|█▌       | 12/240 [00:01<...]"
+        # HF download: "Downloading (…)model.safetensors:  15%"
+        bar_chars = set("█▌▎░▒▓╸╺━─│|\\/-=<>[] ")
+        non_bar = sum(1 for c in line if c not in bar_chars)
+        if non_bar < len(line) * 0.3 and len(line) > 20:
+            return True
+        # Lines with \r in them (carriage return updates)
+        if "\r" in line:
+            return True
+        # Repeated download progress: "Downloading …: XX%"
+        if "Downloading" in line and "%" in line:
+            return True
+        # Very short single-char or whitespace-only updates
+        if line.strip() in ("", "|", "/", "-", "\\"):
+            return True
+        return False
+
     def _stream_output(self):
-        """Read subprocess stdout line-by-line, parse metrics, emit via SocketIO."""
+        """Read subprocess stdout line-by-line, parse metrics, emit via SocketIO.
+
+        Uses eventlet.tpool for blocking readline so the event loop stays responsive.
+        Filters out progress bar spam to keep logs manageable.
+        """
+        from eventlet import tpool
+
+        MAX_LOG_LINES = 10000  # Cap stored lines to avoid memory bloat
+        emit_count = 0
+
         try:
-            for line in self.process.stdout:
+            while True:
+                # Read one line in a real OS thread to avoid blocking eventlet
+                line = tpool.execute(self.process.stdout.readline)
+                if not line:
+                    break  # EOF — process has closed stdout
                 line = line.rstrip("\n\r")
                 if not line:
                     continue
-                self.log_lines.append(line)
+
+                # Filter out progress bar noise
+                if self._is_progress_bar(line):
+                    continue
+
+                # Cap stored log lines
+                if len(self.log_lines) < MAX_LOG_LINES:
+                    self.log_lines.append(line)
+                elif len(self.log_lines) == MAX_LOG_LINES:
+                    self.log_lines.append("[...log truncated at 10000 lines...]")
 
                 # Parse metrics from line
                 metrics = self._parse_metrics(line)
 
-                self._emit("training_log", {
-                    "line": line,
-                    "metrics": metrics,
-                    "step": self.current_step,
-                    "max_steps": self.max_steps,
-                })
+                # Throttle Socket.IO emissions — don't emit every single line during
+                # rapid output (model loading). Emit important lines always.
+                emit_count += 1
+                is_important = metrics or "Error" in line or "Epoch" in line or "step" in line.lower()
+                if is_important or emit_count % 5 == 0:
+                    self._emit("training_log", {
+                        "line": line,
+                        "metrics": metrics,
+                        "step": self.current_step,
+                        "max_steps": self.max_steps,
+                    })
+
+                # Yield to the eventlet event loop
+                eventlet.sleep(0)
 
             self.process.wait()
             self.return_code = self.process.returncode
         except Exception as e:
             self.return_code = -99
+            self.log_lines.append(f"[TrainerUI] Internal error: {e}")
         finally:
             self.is_running = False
+
+            # Build error summary for fast-fail cases (import errors, crashes)
+            error_summary = None
+            if self.return_code and self.return_code != 0:
+                # Extract last meaningful error lines
+                err_lines = [l for l in self.log_lines if "Error" in l or "error" in l.lower()
+                             or "Traceback" in l or "ImportError" in l or "ModuleNotFoundError" in l]
+                if err_lines:
+                    error_summary = err_lines[-1][:200]
+                elif self.log_lines:
+                    error_summary = self.log_lines[-1][:200]
+
             self._emit("training_complete", {
                 "return_code": self.return_code,
                 "stopped": False,
+                "error_summary": error_summary,
             })
 
     def _parse_metrics(self, line):
         """Extract step number and loss values from PyTorch Lightning log output."""
         metrics = {}
 
-        # Match global_step from PL progress: "Epoch 0:  25%|... 1247/5000 ..."
-        step_match = re.search(r"(\d+)/(\d+)\s", line)
-        if step_match:
-            self.current_step = int(step_match.group(1))
-            metrics["step"] = self.current_step
-
-        # Match epoch
-        epoch_match = re.search(r"Epoch\s+(\d+)", line)
-        if epoch_match:
-            self.current_epoch = int(epoch_match.group(1))
-            metrics["epoch"] = self.current_epoch
+        # Match epoch and per-epoch step from PL progress lines:
+        # "Epoch 0:  40%|████| 2/5 [00:06<...]"
+        # "Epoch 312: 100%|████| 5/5 [00:15<...]"
+        # With small datasets, the denominator is samples-per-epoch (e.g. 5),
+        # NOT max_steps. We compute global_step = epoch * steps_per_epoch + step_in_epoch.
+        if "Epoch" in line:
+            epoch_match = re.search(r"Epoch\s+(\d+)", line)
+            step_match = re.search(r"(\d+)/(\d+)\s*\[", line)
+            if epoch_match:
+                self.current_epoch = int(epoch_match.group(1))
+                metrics["epoch"] = self.current_epoch
+            if step_match:
+                step_in_epoch = int(step_match.group(1))
+                steps_per_epoch = int(step_match.group(2))
+                if steps_per_epoch > 0 and steps_per_epoch <= self.max_steps:
+                    global_step = self.current_epoch * steps_per_epoch + step_in_epoch
+                    self.current_step = min(global_step, self.max_steps)
+                    metrics["step"] = self.current_step
+        else:
+            # Match epoch from non-progress lines (e.g. checkpoint logs)
+            epoch_match = re.search(r"Epoch\s+(\d+)", line)
+            if epoch_match:
+                self.current_epoch = int(epoch_match.group(1))
+                metrics["epoch"] = self.current_epoch
 
         # Match loss values: train/loss=0.0342
         loss_matches = re.findall(r"train/([\w]+)=([\d.e\-+]+)", line)
