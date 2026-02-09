@@ -220,8 +220,6 @@
                             <div class="ml-8 flex items-center gap-3">
                                 <label class="text-sm text-gray-400">Dataset Name:</label>
                                 <input id="trainer-dataset-name" type="text" value="lora_dataset" class="input-field w-48 text-sm">
-                                <label class="text-sm text-gray-400">Repeat Count:</label>
-                                <input id="trainer-repeat-count" type="number" value="2000" min="1" max="50000" class="input-field w-28 text-sm">
                                 <button id="btn-convert-dataset" class="btn btn-secondary btn-sm">Convert to HF Dataset</button>
                                 <span id="convert-status" class="text-xs text-gray-500"></span>
                             </div>
@@ -307,7 +305,8 @@
                                 <div class="form-row">
                                     <label>Precision</label>
                                     <select id="cfg-precision" class="input-field w-36 text-sm">
-                                        <option value="bf16-mixed" selected>bf16-mixed (recommended)</option>
+                                        <option value="bf16-true" selected>bf16 (recommended)</option>
+                                        <option value="bf16-mixed">bf16-mixed (may break LoRA)</option>
                                         <option value="32">FP32 (high VRAM)</option>
                                     </select>
                                 </div>

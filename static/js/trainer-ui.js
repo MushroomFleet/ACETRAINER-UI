@@ -8,19 +8,20 @@ const TrainerUI = {
     lossData: [],
     isRunning: false,
     lastStepTime: null,
+    _convertPollTimer: null,
 
     // ===== Presets =====
     PRESETS: {
         conservative: {
-            lora_r: 16, lora_alpha: 32, precision: 'bf16-mixed',
+            lora_r: 16, lora_alpha: 32, precision: 'bf16-true',
             accumulate_grad_batches: 2, label: 'Conservative (~14GB)'
         },
         balanced: {
-            lora_r: 64, lora_alpha: 32, precision: 'bf16-mixed',
+            lora_r: 64, lora_alpha: 32, precision: 'bf16-true',
             accumulate_grad_batches: 1, label: 'Balanced (~18GB)'
         },
         aggressive: {
-            lora_r: 256, lora_alpha: 32, precision: 'bf16-mixed',
+            lora_r: 256, lora_alpha: 32, precision: 'bf16-true',
             accumulate_grad_batches: 1, label: 'Aggressive (~22GB)'
         },
     },
@@ -50,7 +51,9 @@ const TrainerUI = {
                 formData.append('file', file);
                 const result = await Utils.apiUpload('/api/dataset/upload-zip', formData);
                 Utils.hideLoading();
-                Utils.success(`Extracted ${result.count} samples from ZIP`);
+                Utils.success(`Extracted ${result.count} sample(s) from ZIP`);
+                // Auto-refresh to show the data is on the server
+                this.refreshDatasetInfo();
             } catch (err) {
                 Utils.hideLoading();
                 Utils.error('ZIP upload failed: ' + err.message);
@@ -87,45 +90,98 @@ const TrainerUI = {
         });
     },
 
-    // ===== Dataset Conversion =====
+    // ===== Dataset Conversion (async with polling) =====
     async convertDataset() {
         const name = document.getElementById('trainer-dataset-name').value.trim() || 'lora_dataset';
-        const repeatCount = parseInt(document.getElementById('trainer-repeat-count').value) || 2000;
         const statusEl = document.getElementById('convert-status');
+        const convertBtn = document.getElementById('btn-convert-dataset');
 
-        statusEl.textContent = 'Converting...';
+        // First verify there are files to convert
+        try {
+            const val = await Utils.apiGet('/api/dataset/validate');
+            if (!val.total || val.total === 0) {
+                Utils.error('No data files on the server. Upload files from the Dataset Editor or load a ZIP first.');
+                return;
+            }
+            if (!val.valid) {
+                Utils.error(`Dataset has ${val.invalid_count} invalid sample(s). Please fix before converting.`);
+                return;
+            }
+        } catch (e) {
+            Utils.error('Could not validate dataset: ' + e.message);
+            return;
+        }
+
+        statusEl.textContent = 'Starting conversion...';
         statusEl.className = 'text-xs text-yellow-400';
+        convertBtn.disabled = true;
 
         try {
             const result = await Utils.apiPost('/api/dataset/convert', {
-                repeat_count: repeatCount,
                 output_name: name,
             });
 
             if (result.success) {
-                statusEl.textContent = `Ready: ${result.num_samples} samples x ${result.repeat_count} = ${result.total_rows} rows`;
-                statusEl.className = 'text-xs text-green-400';
-                this.showDatasetInfo(result);
-                Utils.success('Dataset converted successfully');
+                // Conversion started in background — poll for completion
+                this._pollConvertStatus(statusEl, convertBtn);
             } else {
-                statusEl.textContent = result.error || 'Conversion failed';
+                statusEl.textContent = result.error || 'Failed to start conversion';
                 statusEl.className = 'text-xs text-red-400';
+                convertBtn.disabled = false;
             }
         } catch (e) {
             statusEl.textContent = 'Error: ' + e.message;
             statusEl.className = 'text-xs text-red-400';
+            convertBtn.disabled = false;
             Utils.error('Dataset conversion failed: ' + e.message);
         }
+    },
+
+    _pollConvertStatus(statusEl, convertBtn) {
+        // Clear any existing poll
+        if (this._convertPollTimer) clearInterval(this._convertPollTimer);
+
+        this._convertPollTimer = setInterval(async () => {
+            try {
+                const status = await Utils.apiGet('/api/dataset/convert-status');
+
+                statusEl.textContent = status.progress || 'Converting...';
+                statusEl.className = 'text-xs text-yellow-400';
+
+                if (!status.running) {
+                    // Conversion finished
+                    clearInterval(this._convertPollTimer);
+                    this._convertPollTimer = null;
+                    convertBtn.disabled = false;
+
+                    if (status.error) {
+                        statusEl.textContent = 'Error: ' + status.error;
+                        statusEl.className = 'text-xs text-red-400';
+                        Utils.error('Conversion failed: ' + status.error);
+                    } else if (status.result && status.result.success) {
+                        const r = status.result;
+                        statusEl.textContent = `Ready: ${r.num_samples} samples`;
+                        statusEl.className = 'text-xs text-green-400';
+                        this.showDatasetInfo(r);
+                        Utils.success('Dataset converted successfully!');
+                    } else {
+                        statusEl.textContent = 'Conversion finished with unknown status';
+                        statusEl.className = 'text-xs text-yellow-400';
+                    }
+                }
+            } catch (e) {
+                // Network error during poll — keep trying
+            }
+        }, 1000);
     },
 
     showDatasetInfo(info) {
         const box = document.getElementById('dataset-info-box');
         box.classList.remove('hidden');
+        const samples = info.num_samples || info.unique_samples || info.total_rows;
         box.innerHTML = `
             <div class="grid grid-cols-2 gap-2">
-                <div>Unique samples: <span class="text-gray-200 font-mono">${info.num_samples}</span></div>
-                <div>Repeat count: <span class="text-gray-200 font-mono">${info.repeat_count}</span></div>
-                <div>Total rows: <span class="text-gray-200 font-mono">${info.total_rows.toLocaleString()}</span></div>
+                <div>Samples: <span class="text-gray-200 font-mono">${samples}</span></div>
                 <div>Path: <span class="text-gray-300 font-mono text-xs">${info.path}</span></div>
             </div>
         `;
@@ -133,33 +189,44 @@ const TrainerUI = {
 
     async refreshDatasetInfo() {
         const name = document.getElementById('trainer-dataset-name').value.trim() || 'lora_dataset';
+        const editorStatusEl = document.getElementById('editor-dataset-status');
+        const convertStatusEl = document.getElementById('convert-status');
+
+        // Check if HF dataset already exists
         try {
             const info = await Utils.apiGet(`/api/dataset/info?name=${encodeURIComponent(name)}`);
-            if (info && !info.error) {
-                const statusEl = document.getElementById('editor-dataset-status');
-                statusEl.textContent = `(${info.unique_samples} samples, ${info.total_rows.toLocaleString()} rows)`;
-                statusEl.className = 'text-xs text-green-400';
-                document.getElementById('convert-status').textContent = `Ready: ${info.unique_samples} samples x ${info.repeat_count} = ${info.total_rows} rows`;
-                document.getElementById('convert-status').className = 'text-xs text-green-400';
+            if (info && info.found) {
+                editorStatusEl.textContent = `(${info.unique_samples} samples)`;
+                editorStatusEl.className = 'text-xs text-green-400';
+                convertStatusEl.textContent = `Ready: ${info.unique_samples} samples`;
+                convertStatusEl.className = 'text-xs text-green-400';
+                this.showDatasetInfo(info);
+                return; // HF dataset exists, no need to check raw files
             }
         } catch (e) {
-            // Dataset doesn't exist yet, that's fine
+            // Silently continue — will check raw files below
         }
 
-        // Also validate server-side data dir
+        // Check raw data files on server
         try {
             const val = await Utils.apiGet('/api/dataset/validate');
             if (val.total > 0) {
-                const statusEl = document.getElementById('editor-dataset-status');
                 if (val.valid) {
-                    statusEl.textContent = `(${val.total} samples on server, ready to convert)`;
-                    statusEl.className = 'text-xs text-green-400';
+                    editorStatusEl.textContent = `(${val.total} samples on server, ready to convert)`;
+                    editorStatusEl.className = 'text-xs text-green-400';
+                    convertStatusEl.textContent = `${val.total} samples ready — click Convert`;
+                    convertStatusEl.className = 'text-xs text-gray-400';
                 } else {
-                    statusEl.textContent = `(${val.total} samples on server, ${val.invalid_count} invalid)`;
-                    statusEl.className = 'text-xs text-yellow-400';
+                    editorStatusEl.textContent = `(${val.total} samples on server, ${val.invalid_count} invalid)`;
+                    editorStatusEl.className = 'text-xs text-yellow-400';
                 }
+            } else {
+                editorStatusEl.textContent = '(no data on server yet)';
+                editorStatusEl.className = 'text-xs text-gray-500';
             }
-        } catch (e) { /* ignore */ }
+        } catch (e) {
+            // Silently ignore
+        }
     },
 
     // ===== Gather Config =====
@@ -203,17 +270,79 @@ const TrainerUI = {
             return;
         }
 
+        // Verify the HF dataset exists before starting
+        try {
+            const info = await Utils.apiGet(`/api/dataset/info?name=${encodeURIComponent(config.dataset_path)}`);
+            if (!info || !info.found) {
+                Utils.error('HF dataset not found. Click "Convert to HF Dataset" first.');
+                return;
+            }
+        } catch (e) {
+            Utils.error('Could not verify dataset. Convert it first.');
+            return;
+        }
+
         try {
             const result = await Utils.apiPost('/api/trainer/start', config);
             if (result.success) {
                 this.setRunningState(true, config.max_steps);
                 Utils.success('Training started (PID: ' + result.pid + ')');
+                // Start fallback polling in case Socket.IO isn't connected
+                this._startStatusPolling();
             } else {
                 Utils.error('Failed to start: ' + result.error);
             }
         } catch (e) {
             Utils.error('Failed to start training: ' + e.message);
         }
+    },
+
+    _startStatusPolling() {
+        // Fallback polling — checks training status via REST every 3s
+        // Handles cases where Socket.IO isn't connected or events are missed
+        if (this._statusPollTimer) clearInterval(this._statusPollTimer);
+
+        this._statusPollTimer = setInterval(async () => {
+            try {
+                const status = await Utils.apiGet('/api/trainer/status');
+
+                if (!status.is_running && this.isRunning) {
+                    // Training ended — Socket.IO may have missed the event
+                    clearInterval(this._statusPollTimer);
+                    this._statusPollTimer = null;
+
+                    // Fetch final logs
+                    const logs = await Utils.apiGet('/api/trainer/logs');
+                    if (logs.lines && logs.lines.length > 0) {
+                        const terminal = document.getElementById('log-terminal');
+                        terminal.textContent = logs.lines.join('\n');
+                        terminal.scrollTop = terminal.scrollHeight;
+                    }
+
+                    // Determine error
+                    let errorSummary = null;
+                    if (status.return_code !== 0 && status.return_code !== null) {
+                        const errLines = (logs.lines || []).filter(l =>
+                            l.includes('Error') || l.includes('Traceback') ||
+                            l.includes('ImportError') || l.includes('ModuleNotFoundError'));
+                        errorSummary = errLines.length > 0 ? errLines[errLines.length - 1].substring(0, 200) : null;
+                    }
+
+                    this.onTrainingComplete({
+                        return_code: status.return_code,
+                        stopped: false,
+                        error_summary: errorSummary,
+                    });
+                } else if (status.is_running) {
+                    // Update progress from REST status
+                    if (status.current_step > 0) {
+                        this.updateProgress(status.current_step, status.max_steps);
+                    }
+                }
+            } catch (e) {
+                // Server unreachable — keep polling
+            }
+        }, 3000);
     },
 
     // ===== Stop Training =====
@@ -298,7 +427,17 @@ const TrainerUI = {
         } else if (data.return_code === 0) {
             Utils.success('Training completed successfully!');
         } else {
-            Utils.error(`Training ended with exit code ${data.return_code}`);
+            const errMsg = data.error_summary
+                ? `Training failed: ${data.error_summary}`
+                : `Training ended with exit code ${data.return_code}`;
+            Utils.error(errMsg);
+
+            // Also append error summary to the log terminal so user can see it
+            if (data.error_summary) {
+                const terminal = document.getElementById('log-terminal');
+                terminal.textContent += '\n\n=== TRAINING FAILED ===\n' + data.error_summary + '\n';
+                terminal.scrollTop = terminal.scrollHeight;
+            }
         }
 
         // Keep progress section visible to see final state
