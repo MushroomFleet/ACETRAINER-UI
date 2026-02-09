@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACE-Step Turbo Trainer</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="text-xl font-bold text-purple-400 tracking-tight">ACE-Step Turbo</div>
+            <div class="text-sm text-gray-500">LoRA Fine-Tuning Studio</div>
+        </div>
+        <div id="gpu-badge" class="flex items-center gap-2 text-xs text-gray-500">
+            <span id="gpu-name">GPU: --</span>
+            <span id="gpu-mem" class="px-2 py-0.5 rounded bg-gray-800">VRAM: --</span>
+            <span id="gpu-temp" class="px-2 py-0.5 rounded bg-gray-800">Temp: --</span>
+        </div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav class="bg-gray-900 border-b border-gray-800 px-6 flex-shrink-0">
+        <div class="flex gap-0">
+            <button class="tab-btn active" data-tab="dataset">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                Dataset Editor
+            </button>
+            <button class="tab-btn" data-tab="trainer">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                Trainer
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-1 overflow-hidden">
+
+        <!-- ==================== DATASET EDITOR TAB ==================== -->
+        <div id="tab-dataset" class="tab-content active h-full flex flex-col">
+
+            <!-- Toolbar -->
+            <div class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center gap-3 flex-shrink-0 flex-wrap">
+                <label class="text-sm text-gray-400">Dataset:</label>
+                <input id="dataset-name" type="text" value="my_lora_dataset" class="input-field w-48 text-sm" placeholder="Dataset name">
+                <div class="flex items-center gap-1 text-sm">
+                    <span class="text-gray-500">Samples:</span>
+                    <span id="sample-count" class="font-mono text-green-400">0</span>
+                    <span class="text-gray-600 mx-1">|</span>
+                    <span class="text-gray-500">Valid:</span>
+                    <span id="valid-count" class="font-mono text-green-400">0</span>
+                    <span class="text-gray-600 mx-1">|</span>
+                    <span class="text-gray-500">Invalid:</span>
+                    <span id="invalid-count" class="font-mono text-red-400">0</span>
+                </div>
+                <div class="flex-1"></div>
+                <button id="btn-add-files" class="btn btn-primary text-sm">+ Add MP3s</button>
+                <button id="btn-import-zip" class="btn btn-secondary text-sm">Import ZIP</button>
+                <button id="btn-export-zip" class="btn btn-secondary text-sm">Export ZIP</button>
+                <button id="btn-clear-all" class="btn btn-danger text-sm">Clear All</button>
+                <input id="file-input-mp3" type="file" accept=".mp3" multiple class="hidden">
+                <input id="file-input-zip" type="file" accept=".zip" class="hidden">
+            </div>
+
+            <!-- Two-panel layout -->
+            <div class="flex-1 flex overflow-hidden">
+
+                <!-- Left Panel: Sample List -->
+                <div class="w-64 border-r border-gray-800 bg-gray-925 flex flex-col flex-shrink-0">
+                    <div class="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-800">
+                        Samples
+                    </div>
+                    <div id="sample-list" class="flex-1 overflow-y-auto">
+                        <div class="p-4 text-center text-gray-600 text-sm">No samples loaded.<br>Click "+ Add MP3s" to begin.</div>
+                    </div>
+                </div>
+
+                <!-- Right Panel: Sample Editor -->
+                <div class="flex-1 flex flex-col overflow-hidden">
+                    <div id="editor-panel" class="flex-1 overflow-y-auto p-6">
+                        <!-- Empty state -->
+                        <div id="editor-empty" class="flex flex-col items-center justify-center h-full text-gray-600">
+                            <svg class="w-16 h-16 mb-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
+                            <p class="text-lg">No sample selected</p>
+                            <p class="text-sm mt-1">Add audio files or select a sample from the list.</p>
+                        </div>
+
+                        <!-- Editor form (hidden until sample selected) -->
+                        <div id="editor-form" class="hidden max-w-3xl">
+                            <!-- Navigation -->
+                            <div class="flex items-center gap-3 mb-5">
+                                <button id="btn-prev" class="btn btn-secondary btn-sm">&larr; Prev</button>
+                                <span id="nav-position" class="text-sm text-gray-400 font-mono">1 / 1</span>
+                                <button id="btn-next" class="btn btn-secondary btn-sm">Next &rarr;</button>
+                                <div class="flex-1"></div>
+                                <span id="editor-validity" class="text-sm px-2 py-0.5 rounded"></span>
+                            </div>
+
+                            <!-- Audio Player -->
+                            <div class="bg-gray-800 rounded-lg p-4 mb-5">
+                                <div class="flex items-center gap-3 mb-2">
+                                    <span id="editor-filename-display" class="font-mono text-purple-400 text-sm"></span>
+                                    <span id="editor-duration" class="text-xs text-gray-500"></span>
+                                </div>
+                                <audio id="audio-player" controls class="w-full h-10"></audio>
+                            </div>
+
+                            <!-- Filename -->
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Filename (stem)</label>
+                                <input id="editor-stem" type="text" class="input-field w-full font-mono" placeholder="track_001">
+                                <p class="text-xs text-gray-600 mt-1">Used for: {stem}.mp3, {stem}_prompt.txt, {stem}_lyrics.txt</p>
+                            </div>
+
+                            <!-- Prompt Tags -->
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-gray-400 mb-1">
+                                    Prompt Tags <span class="text-gray-600">(_prompt.txt)</span>
+                                </label>
+                                <textarea id="editor-prompt" rows="3" class="input-field w-full"
+                                    placeholder="genre, vocal type, instruments, mood/energy, tempo (e.g. 120 bpm), key (e.g. minor key)"></textarea>
+                                <p class="text-xs text-gray-600 mt-1">Comma-separated audio description tags: genre, vocal, instruments, mood, tempo, key.</p>
+                            </div>
+
+                            <!-- Instrumental Toggle -->
+                            <div class="mb-4 flex items-center gap-2">
+                                <input id="editor-instrumental" type="checkbox" class="w-4 h-4 rounded bg-gray-700 border-gray-600 text-purple-500 focus:ring-purple-500">
+                                <label for="editor-instrumental" class="text-sm text-gray-400">Instrumental (no lyrics needed)</label>
+                            </div>
+
+                            <!-- Lyrics -->
+                            <div class="mb-5">
+                                <label class="block text-sm font-medium text-gray-400 mb-1">
+                                    Lyrics <span class="text-gray-600">(_lyrics.txt)</span>
+                                </label>
+                                <textarea id="editor-lyrics" rows="10" class="input-field w-full font-mono text-sm"
+                                    placeholder="[Verse]&#10;Your lyrics here...&#10;&#10;[Chorus]&#10;Chorus lyrics...&#10;&#10;[Bridge]&#10;Bridge lyrics...&#10;&#10;[Instrumental]"></textarea>
+                                <p class="text-xs text-gray-600 mt-1">Song lyrics with structure tags: [Verse], [Chorus], [Bridge], [Instrumental]</p>
+                            </div>
+
+                            <!-- Actions -->
+                            <div class="flex items-center gap-3">
+                                <button id="btn-save-sample" class="btn btn-primary">Save Changes</button>
+                                <button id="btn-delete-sample" class="btn btn-danger">Delete Sample</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bulk Operations & Validation (collapsible at bottom) -->
+                    <div class="border-t border-gray-800 bg-gray-900 flex-shrink-0">
+                        <button id="toggle-bulk-panel" class="w-full px-6 py-2 text-left text-sm text-gray-400 hover:text-gray-200 flex items-center gap-2">
+                            <svg id="bulk-chevron" class="w-4 h-4 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+                            Bulk Operations &amp; Validation
+                        </button>
+                        <div id="bulk-panel" class="hidden px-6 pb-4">
+                            <div class="grid grid-cols-2 gap-6">
+                                <!-- Bulk Tag Operations -->
+                                <div>
+                                    <h4 class="text-sm font-semibold text-gray-400 mb-3">Bulk Tag Operations</h4>
+                                    <div class="flex gap-2 mb-2">
+                                        <input id="bulk-prepend" type="text" class="input-field flex-1 text-sm" placeholder="Tags to prepend...">
+                                        <button id="btn-bulk-prepend" class="btn btn-secondary btn-sm">Prepend All</button>
+                                    </div>
+                                    <div class="flex gap-2 mb-2">
+                                        <input id="bulk-append" type="text" class="input-field flex-1 text-sm" placeholder="Tags to append...">
+                                        <button id="btn-bulk-append" class="btn btn-secondary btn-sm">Append All</button>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <input id="bulk-find" type="text" class="input-field flex-1 text-sm" placeholder="Find tag...">
+                                        <input id="bulk-replace" type="text" class="input-field flex-1 text-sm" placeholder="Replace with...">
+                                        <button id="btn-bulk-replace" class="btn btn-secondary btn-sm">Replace All</button>
+                                    </div>
+                                </div>
+                                <!-- Validation Summary -->
+                                <div>
+                                    <h4 class="text-sm font-semibold text-gray-400 mb-3">Validation Summary</h4>
+                                    <div id="validation-summary" class="text-sm text-gray-500">
+                                        Click "Validate" or "Export" to check your dataset.
+                                    </div>
+                                    <div class="flex gap-2 mt-3">
+                                        <button id="btn-validate" class="btn btn-secondary btn-sm">Validate Dataset</button>
+                                        <button id="btn-proceed-trainer" class="btn btn-primary btn-sm" disabled>Proceed to Trainer</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== TRAINER TAB ==================== -->
+        <div id="tab-trainer" class="tab-content h-full flex flex-col" style="display:none;">
+
+            <div class="flex-1 overflow-y-auto">
+                <div class="max-w-5xl mx-auto p-6 space-y-6">
+
+                    <!-- Dataset Source -->
+                    <section class="card">
+                        <h3 class="card-title">Dataset Source</h3>
+                        <div class="space-y-3">
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="radio" name="dataset-source" value="editor" checked class="text-purple-500 focus:ring-purple-500">
+                                <span class="text-sm">Use dataset from Editor</span>
+                                <span id="editor-dataset-status" class="text-xs text-gray-500">(not yet converted)</span>
+                            </label>
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="radio" name="dataset-source" value="zip" class="text-purple-500 focus:ring-purple-500">
+                                <span class="text-sm">Load existing dataset ZIP</span>
+                            </label>
+                            <div id="trainer-zip-upload" class="hidden ml-8">
+                                <input id="trainer-zip-input" type="file" accept=".zip" class="text-sm text-gray-400 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-gray-700 file:text-gray-200 hover:file:bg-gray-600">
+                            </div>
+                            <div class="ml-8 flex items-center gap-3">
+                                <label class="text-sm text-gray-400">Dataset Name:</label>
+                                <input id="trainer-dataset-name" type="text" value="lora_dataset" class="input-field w-48 text-sm">
+                                <label class="text-sm text-gray-400">Repeat Count:</label>
+                                <input id="trainer-repeat-count" type="number" value="2000" min="1" max="50000" class="input-field w-28 text-sm">
+                                <button id="btn-convert-dataset" class="btn btn-secondary btn-sm">Convert to HF Dataset</button>
+                                <span id="convert-status" class="text-xs text-gray-500"></span>
+                            </div>
+                            <div id="dataset-info-box" class="hidden ml-8 p-3 bg-gray-800 rounded-lg text-sm text-gray-400">
+                                <!-- populated dynamically -->
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Training Configuration -->
+                    <section class="card">
+                        <h3 class="card-title">Training Configuration</h3>
+
+                        <!-- Presets -->
+                        <div class="mb-5">
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">RTX 4090 24GB Presets</label>
+                            <div class="flex gap-2">
+                                <button class="preset-btn" data-preset="conservative">Conservative<br><span class="text-xs text-gray-500">r=16, ~14GB</span></button>
+                                <button class="preset-btn active" data-preset="balanced">Balanced<br><span class="text-xs text-gray-500">r=64, ~18GB</span></button>
+                                <button class="preset-btn" data-preset="aggressive">Aggressive<br><span class="text-xs text-gray-500">r=256, ~22GB</span></button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-6">
+                            <!-- General -->
+                            <div class="space-y-3">
+                                <h4 class="text-sm font-semibold text-gray-400 border-b border-gray-800 pb-1">General</h4>
+                                <div class="form-row">
+                                    <label>Experiment Name</label>
+                                    <input id="cfg-exp-name" type="text" value="my_lora" class="input-field flex-1 text-sm">
+                                </div>
+                                <div class="form-row">
+                                    <label>Model Checkpoint Dir</label>
+                                    <input id="cfg-checkpoint-dir" type="text" value="" class="input-field flex-1 text-sm" placeholder="Auto-downloads if empty">
+                                </div>
+                                <div class="form-row">
+                                    <label>Resume From (.ckpt)</label>
+                                    <input id="cfg-ckpt-path" type="text" value="" class="input-field flex-1 text-sm" placeholder="None (train from scratch)">
+                                </div>
+                            </div>
+
+                            <!-- LoRA Config -->
+                            <div class="space-y-3">
+                                <h4 class="text-sm font-semibold text-gray-400 border-b border-gray-800 pb-1">LoRA Configuration</h4>
+                                <div class="form-row">
+                                    <label>Rank (r)</label>
+                                    <input id="cfg-lora-r" type="number" value="64" min="4" max="512" class="input-field w-24 text-sm">
+                                </div>
+                                <div class="form-row">
+                                    <label>Alpha</label>
+                                    <input id="cfg-lora-alpha" type="number" value="32" min="1" max="512" class="input-field w-24 text-sm">
+                                </div>
+                                <div class="form-row">
+                                    <label>Use RS-LoRA</label>
+                                    <input id="cfg-rslora" type="checkbox" checked class="w-4 h-4">
+                                </div>
+                                <div>
+                                    <label class="text-xs text-gray-500">Target Modules</label>
+                                    <div class="flex flex-wrap gap-2 mt-1">
+                                        <label class="tag-check"><input type="checkbox" value="speaker_embedder" checked class="lora-module"> speaker_embedder</label>
+                                        <label class="tag-check"><input type="checkbox" value="linear_q" checked class="lora-module"> linear_q</label>
+                                        <label class="tag-check"><input type="checkbox" value="linear_k" checked class="lora-module"> linear_k</label>
+                                        <label class="tag-check"><input type="checkbox" value="linear_v" checked class="lora-module"> linear_v</label>
+                                        <label class="tag-check"><input type="checkbox" value="to_q" checked class="lora-module"> to_q</label>
+                                        <label class="tag-check"><input type="checkbox" value="to_k" checked class="lora-module"> to_k</label>
+                                        <label class="tag-check"><input type="checkbox" value="to_v" checked class="lora-module"> to_v</label>
+                                        <label class="tag-check"><input type="checkbox" value="to_out.0" checked class="lora-module"> to_out.0</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Training Hyperparams -->
+                            <div class="space-y-3">
+                                <h4 class="text-sm font-semibold text-gray-400 border-b border-gray-800 pb-1">Training Hyperparameters</h4>
+                                <div class="form-row">
+                                    <label>Learning Rate</label>
+                                    <input id="cfg-lr" type="text" value="1e-4" class="input-field w-24 text-sm">
+                                </div>
+                                <div class="form-row">
+                                    <label>Max Steps</label>
+                                    <input id="cfg-max-steps" type="number" value="5000" min="100" max="2000000" class="input-field w-28 text-sm">
+                                </div>
+                                <div class="form-row">
+                                    <label>Precision</label>
+                                    <select id="cfg-precision" class="input-field w-36 text-sm">
+                                        <option value="bf16-mixed" selected>bf16-mixed (recommended)</option>
+                                        <option value="32">FP32 (high VRAM)</option>
+                                    </select>
+                                </div>
+                                <div class="form-row">
+                                    <label>Grad Accumulation</label>
+                                    <input id="cfg-grad-accum" type="number" value="1" min="1" max="32" class="input-field w-20 text-sm">
+                                </div>
+                                <div class="form-row">
+                                    <label>Gradient Clip</label>
+                                    <input id="cfg-grad-clip" type="text" value="0.5" class="input-field w-20 text-sm">
+                                </div>
+                                <div class="form-row">
+                                    <label>Shift</label>
+                                    <input id="cfg-shift" type="text" value="3.0" class="input-field w-20 text-sm">
+                                </div>
+                            </div>
+
+                            <!-- Checkpoint / Logging -->
+                            <div class="space-y-3">
+                                <h4 class="text-sm font-semibold text-gray-400 border-b border-gray-800 pb-1">Checkpoints &amp; Logging</h4>
+                                <div class="form-row">
+                                    <label>Save Every N Steps</label>
+                                    <input id="cfg-save-every" type="number" value="500" min="50" class="input-field w-24 text-sm">
+                                </div>
+                                <div class="form-row">
+                                    <label>Plot Every N Steps</label>
+                                    <input id="cfg-plot-every" type="number" value="1000" min="100" class="input-field w-24 text-sm">
+                                </div>
+                                <div class="form-row">
+                                    <label>Num Workers</label>
+                                    <input id="cfg-workers" type="number" value="4" min="0" max="16" class="input-field w-20 text-sm">
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Training Controls -->
+                    <section class="card">
+                        <div class="flex items-center gap-3 flex-wrap">
+                            <button id="btn-start-training" class="btn btn-primary">Start Training</button>
+                            <button id="btn-stop-training" class="btn btn-danger" disabled>Stop Training</button>
+                            <button id="btn-tensorboard" class="btn btn-secondary">Open TensorBoard</button>
+                            <div class="flex-1"></div>
+                            <span id="training-status-badge" class="text-sm px-3 py-1 rounded-full bg-gray-800 text-gray-400">Idle</span>
+                        </div>
+                    </section>
+
+                    <!-- Progress -->
+                    <section id="progress-section" class="card hidden">
+                        <h3 class="card-title">Training Progress</h3>
+                        <div class="mb-3">
+                            <div class="flex justify-between text-sm mb-1">
+                                <span id="progress-step" class="text-gray-400">Step 0 / 0</span>
+                                <span id="progress-pct" class="text-purple-400">0%</span>
+                            </div>
+                            <div class="w-full bg-gray-800 rounded-full h-3">
+                                <div id="progress-bar" class="bg-purple-500 h-3 rounded-full transition-all" style="width:0%"></div>
+                            </div>
+                        </div>
+                        <!-- Metrics -->
+                        <div id="metrics-grid" class="grid grid-cols-3 gap-3 mb-4">
+                            <div class="metric-box">
+                                <span class="metric-label">Loss</span>
+                                <span id="metric-loss" class="metric-value">--</span>
+                            </div>
+                            <div class="metric-box">
+                                <span class="metric-label">Denoising Loss</span>
+                                <span id="metric-denoise" class="metric-value">--</span>
+                            </div>
+                            <div class="metric-box">
+                                <span class="metric-label">Learning Rate</span>
+                                <span id="metric-lr" class="metric-value">--</span>
+                            </div>
+                            <div class="metric-box">
+                                <span class="metric-label">GPU Memory</span>
+                                <span id="metric-gpu-mem" class="metric-value">--</span>
+                            </div>
+                            <div class="metric-box">
+                                <span class="metric-label">GPU Utilization</span>
+                                <span id="metric-gpu-util" class="metric-value">--</span>
+                            </div>
+                            <div class="metric-box">
+                                <span class="metric-label">Step Time</span>
+                                <span id="metric-step-time" class="metric-value">--</span>
+                            </div>
+                        </div>
+
+                        <!-- Loss Chart -->
+                        <div class="bg-gray-800 rounded-lg p-3 mb-4" style="height:250px">
+                            <canvas id="loss-chart"></canvas>
+                        </div>
+
+                        <!-- Log Output -->
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <h4 class="text-sm font-semibold text-gray-400">Log Output</h4>
+                                <label class="flex items-center gap-1 text-xs text-gray-500">
+                                    <input id="log-autoscroll" type="checkbox" checked class="w-3 h-3"> Auto-scroll
+                                </label>
+                            </div>
+                            <pre id="log-terminal" class="log-terminal"></pre>
+                        </div>
+
+                        <!-- Checkpoints -->
+                        <div class="mt-4">
+                            <h4 class="text-sm font-semibold text-gray-400 mb-2">Saved Checkpoints</h4>
+                            <div id="checkpoint-list" class="space-y-1 text-sm text-gray-500">
+                                No checkpoints yet.
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
+
+    <!-- Confirm Modal -->
+    <div id="confirm-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <p id="confirm-message" class="text-sm text-gray-200 mb-4"></p>
+            <div class="flex justify-end gap-2">
+                <button id="confirm-cancel" class="btn btn-secondary btn-sm">Cancel</button>
+                <button id="confirm-ok" class="btn btn-danger btn-sm">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-60 z-50 hidden flex items-center justify-center">
+        <div class="flex flex-col items-center gap-3">
+            <div class="spinner"></div>
+            <p id="loading-message" class="text-sm text-gray-300">Loading...</p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/db.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/dataset-editor.js"></script>
+    <script src="/static/js/trainer-ui.js"></script>
+</body>
+</html>
