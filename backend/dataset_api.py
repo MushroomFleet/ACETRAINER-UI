@@ -8,6 +8,16 @@ import threading
 from flask import Blueprint, request, jsonify, current_app, send_file
 from backend import dataset_service as ds
 
+# eventlet.monkey_patch() replaces threading.Thread with a green-thread version.
+# HuggingFace Datasets uses memory-mapped Arrow files that break under eventlet's
+# patched I/O on Windows (Errno 22).  Import the *real* OS thread class so the
+# conversion runs outside eventlet's cooperative scheduler.
+try:
+    from eventlet.patcher import original as _original
+    _RealThread = _original("threading").Thread
+except Exception:
+    _RealThread = threading.Thread
+
 dataset_bp = Blueprint("dataset", __name__)
 
 # ===== Background conversion state =====
@@ -110,9 +120,10 @@ def convert():
         finally:
             _convert_state["running"] = False
 
-    # Use a plain OS thread — eventlet's tpool/greenlets conflict with
-    # HF Datasets' internal file I/O on small datasets (greenlet switch error).
-    t = threading.Thread(target=run_conversion, daemon=True)
+    # Must use a *real* OS thread (not eventlet's green-thread wrapper) so that
+    # HF Datasets' memory-mapped Arrow I/O isn't routed through eventlet's patched
+    # file descriptors, which causes Errno 22 on Windows.
+    t = _RealThread(target=run_conversion, daemon=True)
     t.start()
 
     return jsonify({"success": True, "status": "started"})

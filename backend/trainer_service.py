@@ -107,7 +107,9 @@ class TrainerService:
             "--num_workers", "0",  # Must be 0 on Windows (py3langid can't pickle across workers)
             "--every_n_train_steps", str(config.get("save_every", 500)),
             "--every_plot_step", str(config.get("plot_every", 1000)),
-            "--save_top_k", str(config.get("save_top_k", 2)),
+            # PL 2.5+ requires save_top_k ∈ {-1, 0, 1} when monitor=None.
+            # Use -1 (keep all checkpoints) — LoRA adapters are small.
+            "--save_top_k", "-1",
             "--lora_config_path", lora_config_path,
             "--devices", "1",
             "--logger_dir", logger_dir,
