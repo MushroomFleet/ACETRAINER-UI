@@ -8,6 +8,8 @@ A web-based UI for fine-tuning the [ACE-Step](https://github.com/ace-step/ACE-St
 - NVIDIA GPU with 16+ GB VRAM (tested on RTX 4090 24GB)
 - Windows (Linux should work but is untested)
 - The official ACE-Step repository cloned alongside this one
+- ffmpeg on PATH (required for audio captioning — install via `conda install ffmpeg` or download from [ffmpeg.org](https://ffmpeg.org))
+- Meta's ImageBind repository cloned alongside this one (optional — required only for auto-captioning)
 
 ## Required Directory Structure
 
@@ -22,9 +24,17 @@ your-project-folder/
 │   │   └── zh_rap_lora_config.json
 │   └── ...
 │
+├── ImageBind/             <-- Meta ImageBind repo (optional, for auto-captioning)
+│   ├── imagebind/
+│   └── setup.py
+│
 └── ACETrainer/            <-- This repo
     ├── app.py
     ├── backend/
+    │   ├── captioner/     <-- ImageBind audio classification captioner
+    │   ├── dataset_api.py
+    │   ├── dataset_service.py
+    │   └── captioner_api.py
     ├── static/
     └── workspace/         <-- Created automatically on first run
 ```
@@ -58,6 +68,26 @@ These are lightweight additions on top of the ACE-Step environment:
 - Flask + Flask-SocketIO + Flask-CORS (web server)
 - eventlet (async Socket.IO transport)
 - mutagen (MP3 duration detection)
+- pydub (MP3-to-WAV conversion for audio captioning)
+
+### 3b. Install ImageBind (Optional — for auto-captioning)
+
+The auto-captioning feature uses Meta's ImageBind model for zero-shot audio classification. Skip this step if you plan to write all prompt tags manually.
+
+```bash
+# Clone ImageBind alongside ACE-Step and ACETrainer
+git clone https://github.com/facebookresearch/ImageBind
+
+# Install without pulling its own torch version
+cd ImageBind
+pip install --no-deps .
+
+# Install ImageBind sub-dependencies
+pip install "timm>=0.9.0" ftfy regex einops iopath types-regex
+pip install git+https://github.com/facebookresearch/pytorchvideo.git@28fe037d212663c6a24f373b94cc5d478c8c1a1d
+```
+
+> **Note:** The first time you run a captioning request, ImageBind will download its pretrained weights (~5 GB). Subsequent runs load from the local cache.
 
 ### 4. Run
 
@@ -70,6 +100,8 @@ Open your browser to **http://127.0.0.1:7870**
 ## Features
 
 - **Dataset Editor** — Upload, preview, and edit training samples (MP3 + prompt + lyrics) in the browser. Data stored client-side in IndexedDB until uploaded to the server.
+- **Auto-Captioning** — Zero-shot audio classification via ImageBind generates structured captions (genre, vocal type, instruments, mood, tempo, key) per sample — individually or in batch.
+- **Trigger Word** — Set a LoRA activation keyword in the Dataset Editor that is automatically prepended to all captions during dataset conversion.
 - **One-Click Conversion** — Converts raw files to HuggingFace Dataset format for training.
 - **Training Presets** — Conservative, Balanced, and Aggressive presets tuned for RTX 4090.
 - **Full Config Control** — LoRA rank/alpha, learning rate, precision, gradient accumulation, checkpoint intervals, and more.
@@ -102,6 +134,8 @@ Load this adapter into the ACE-Step inference pipeline to generate music with yo
 ## Documentation
 
 See [USER-GUIDE.md](USER-GUIDE.md) for detailed training guidance including:
+- Auto-captioning with ImageBind (how it works, how to use it)
+- Trigger word setup for LoRA activation
 - Step/epoch calculations for small datasets
 - Time estimates
 - How to read the loss graph

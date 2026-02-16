@@ -11,6 +11,7 @@ const DatasetEditor = {
     init() {
         this.bindEvents();
         this.loadSamples();
+        this.loadTriggerWord();
     },
 
     bindEvents() {
@@ -34,6 +35,12 @@ const DatasetEditor = {
         // Toolbar
         document.getElementById('btn-export-zip').addEventListener('click', () => this.exportZip());
         document.getElementById('btn-clear-all').addEventListener('click', () => this.clearAll());
+        document.getElementById('btn-caption-all').addEventListener('click', () => this.captionAll());
+
+        // Trigger word (auto-save on input)
+        document.getElementById('trigger-word').addEventListener('input',
+            Utils.debounce(() => this.saveTriggerWord(), 500)
+        );
 
         // Navigation
         document.getElementById('btn-prev').addEventListener('click', () => this.navigate(-1));
@@ -42,6 +49,7 @@ const DatasetEditor = {
         // Editor actions
         document.getElementById('btn-save-sample').addEventListener('click', () => this.saveCurrent());
         document.getElementById('btn-delete-sample').addEventListener('click', () => this.deleteCurrent());
+        document.getElementById('btn-auto-caption').addEventListener('click', () => this.autoCaptionCurrent());
 
         // Instrumental toggle
         document.getElementById('editor-instrumental').addEventListener('change', (e) => {
@@ -322,6 +330,9 @@ const DatasetEditor = {
         document.getElementById('editor-lyrics').value = s.lyrics || '';
         document.getElementById('editor-lyrics').disabled = s.isInstrumental || false;
         document.getElementById('editor-lyrics').style.opacity = s.isInstrumental ? '0.4' : '1';
+
+        // Hide caption details when navigating
+        document.getElementById('caption-details').classList.add('hidden');
     },
 
     showEmptyState() {
@@ -516,6 +527,156 @@ const DatasetEditor = {
             Utils.hideLoading();
             Utils.error('Upload failed: ' + e.message);
         }
+    },
+
+    // ===== Trigger Word =====
+    async loadTriggerWord() {
+        const tw = await DB.getMeta('triggerWord');
+        document.getElementById('trigger-word').value = tw || '';
+    },
+
+    async saveTriggerWord() {
+        const tw = document.getElementById('trigger-word').value.trim();
+        await DB.setMeta('triggerWord', tw);
+    },
+
+    // ===== Auto-Captioning =====
+    async autoCaptionCurrent() {
+        if (this.currentIndex < 0) return;
+        const s = this.samples[this.currentIndex];
+        if (!s.audioBlob) {
+            Utils.error('No audio file for this sample');
+            return;
+        }
+
+        const btn = document.getElementById('btn-auto-caption');
+        btn.disabled = true;
+        btn.textContent = 'Captioning...';
+
+        try {
+            const formData = new FormData();
+            formData.append('audio', s.audioBlob, `${s.filename}.mp3`);
+            formData.append('is_instrumental', s.isInstrumental ? 'true' : 'false');
+
+            const result = await Utils.apiUpload('/api/captioner/caption', formData);
+
+            // Populate the prompt field
+            document.getElementById('editor-prompt').value = result.caption;
+
+            // Show classification details
+            const detailsEl = document.getElementById('caption-details');
+            detailsEl.classList.remove('hidden');
+            detailsEl.innerHTML = this.formatCaptionDetails(result.details);
+
+            Utils.success('Caption generated');
+        } catch (e) {
+            Utils.error('Caption failed: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Auto-Caption';
+        }
+    },
+
+    async captionAll() {
+        if (this.samples.length === 0) {
+            Utils.error('No samples to caption');
+            return;
+        }
+        const ok = await Utils.confirm(
+            `Auto-caption all ${this.samples.length} samples? This will overwrite existing prompts.`
+        );
+        if (!ok) return;
+
+        // First, upload all audio files to server so captioner can access them
+        Utils.showLoading('Uploading audio for captioning...');
+        try {
+            await Utils.apiDelete('/api/dataset/clear');
+            for (const s of this.samples) {
+                if (!s.audioBlob) continue;
+                const formData = new FormData();
+                formData.append('stem', s.filename);
+                formData.append('prompt', s.prompt || '');
+                formData.append('lyrics', s.lyrics || '');
+                formData.append('audio', s.audioBlob, `${s.filename}.mp3`);
+                await Utils.apiUpload('/api/dataset/save-sample', formData);
+            }
+        } catch (e) {
+            Utils.hideLoading();
+            Utils.error('Failed to upload audio: ' + e.message);
+            return;
+        }
+
+        // Start batch captioning
+        Utils.hideLoading();
+        Utils.showLoading('Starting ImageBind captioner (model loading on first run)...');
+
+        try {
+            const stems = this.samples.map(s => s.filename);
+            await Utils.apiPost('/api/captioner/caption-all', { stems });
+
+            // Poll for progress
+            this.pollCaptionProgress();
+        } catch (e) {
+            Utils.hideLoading();
+            Utils.error('Batch captioning failed: ' + e.message);
+        }
+    },
+
+    pollCaptionProgress() {
+        const poll = setInterval(async () => {
+            try {
+                const status = await Utils.apiGet('/api/captioner/caption-all/status');
+
+                const pct = status.total > 0
+                    ? Math.round((status.completed / status.total) * 100) : 0;
+                Utils.showLoading(
+                    `Captioning: ${status.completed}/${status.total} (${pct}%)` +
+                    (status.current_file ? ` \u2014 ${status.current_file}` : '')
+                );
+
+                if (!status.running) {
+                    clearInterval(poll);
+                    Utils.hideLoading();
+
+                    if (status.error) {
+                        Utils.error('Batch captioning error: ' + status.error);
+                        return;
+                    }
+
+                    // Apply captions to IndexedDB samples
+                    let applied = 0;
+                    for (const s of this.samples) {
+                        const caption = status.results[s.filename];
+                        if (caption && !caption.startsWith('ERROR:')) {
+                            s.prompt = caption;
+                            s.isValid = DB.checkValidity(s);
+                            await DB.putSample(s);
+                            applied++;
+                        }
+                    }
+
+                    await this.loadSamples();
+                    this.renderEditor();
+                    Utils.success(`Applied captions to ${applied} samples`);
+                }
+            } catch (e) {
+                // Keep polling on network error
+            }
+        }, 1500);
+    },
+
+    formatCaptionDetails(details) {
+        if (!details) return '';
+        const lines = [];
+        lines.push(`Genre: ${details.genre.label} (${details.genre.confidence})`);
+        lines.push(`Vocal: ${details.vocal.label} (${details.vocal.confidence})`);
+        const instr = details.instruments.map(i => `${i.label} (${i.confidence})`).join(', ');
+        lines.push(`Instruments: ${instr}`);
+        const moods = details.mood.map(m => `${m.label} (${m.confidence})`).join(', ');
+        lines.push(`Mood: ${moods}`);
+        lines.push(`Tempo: ${details.tempo.label} (${details.tempo.confidence})`);
+        lines.push(`Key: ${details.key.label} (${details.key.confidence})`);
+        return lines.join('<br>');
     },
 
     // ===== Utility =====

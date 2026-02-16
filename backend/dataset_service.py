@@ -186,7 +186,7 @@ def convert_to_hf_dataset(output_name="lora_dataset"):
     return convert_to_hf_dataset_standalone(work_dir, output_name)
 
 
-def convert_to_hf_dataset_standalone(work_dir, output_name="lora_dataset", progress_callback=None):
+def convert_to_hf_dataset_standalone(work_dir, output_name="lora_dataset", progress_callback=None, trigger_word=""):
     """
     Convert raw data files to HuggingFace dataset format.
     Standalone version — no Flask context needed, safe for background threads.
@@ -230,10 +230,16 @@ def convert_to_hf_dataset_standalone(work_dir, output_name="lora_dataset", progr
                 lyrics = f.read().strip()
 
             keys = song_path.stem
+            tags = prompt.split(", ")
+
+            # Prepend trigger word if set
+            if trigger_word:
+                tags = [trigger_word] + tags
+
             example = {
                 "keys": keys,
                 "filename": str(song_path),
-                "tags": prompt.split(", "),
+                "tags": tags,
                 "speaker_emb_path": "",
                 "norm_lyrics": lyrics,
                 "recaption": {},

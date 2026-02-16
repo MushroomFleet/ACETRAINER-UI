@@ -74,6 +74,7 @@ class TrainerService:
         lora_config = {
             "r": config.get("lora_r", 64),
             "lora_alpha": config.get("lora_alpha", 32),
+            "lora_dropout": config.get("lora_dropout", 0.1),
             "target_modules": config.get("target_modules", [
                 "speaker_embedder", "linear_q", "linear_k", "linear_v",
                 "to_q", "to_k", "to_v", "to_out.0"
@@ -100,9 +101,10 @@ class TrainerService:
             "--learning_rate", str(config.get("learning_rate", 1e-4)),
             "--max_steps", str(self.max_steps),
             "--precision", config.get("precision", "bf16-true"),
-            "--accumulate_grad_batches", str(config.get("accumulate_grad_batches", 1)),
+            "--accumulate_grad_batches", str(config.get("accumulate_grad_batches", 4)),
             "--gradient_clip_val", str(config.get("gradient_clip_val", 0.5)),
             "--gradient_clip_algorithm", config.get("gradient_clip_algorithm", "norm"),
+            "--lr_scheduler", config.get("lr_scheduler", "cosine_restarts"),
             "--shift", str(config.get("shift", 3.0)),
             "--num_workers", "0",  # Must be 0 on Windows (py3langid can't pickle across workers)
             "--every_n_train_steps", str(config.get("save_every", 500)),

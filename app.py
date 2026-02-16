@@ -35,9 +35,11 @@ socketio = SocketIO(app, cors_allowed_origins="*", max_http_buffer_size=200 * 10
 # Register blueprints
 from backend.dataset_api import dataset_bp
 from backend.trainer_api import trainer_bp
+from backend.captioner_api import captioner_bp
 
 app.register_blueprint(dataset_bp, url_prefix="/api/dataset")
 app.register_blueprint(trainer_bp, url_prefix="/api/trainer")
+app.register_blueprint(captioner_bp, url_prefix="/api/captioner")
 
 # Make socketio accessible to blueprints
 app.config["SOCKETIO"] = socketio

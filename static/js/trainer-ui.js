@@ -14,15 +14,15 @@ const TrainerUI = {
     PRESETS: {
         conservative: {
             lora_r: 16, lora_alpha: 32, precision: 'bf16-true',
-            accumulate_grad_batches: 2, label: 'Conservative (~14GB)'
+            accumulate_grad_batches: 4, label: 'Conservative (~14GB)'
         },
         balanced: {
             lora_r: 64, lora_alpha: 32, precision: 'bf16-true',
-            accumulate_grad_batches: 1, label: 'Balanced (~18GB)'
+            accumulate_grad_batches: 4, label: 'Balanced (~18GB)'
         },
         aggressive: {
             lora_r: 256, lora_alpha: 32, precision: 'bf16-true',
-            accumulate_grad_batches: 1, label: 'Aggressive (~22GB)'
+            accumulate_grad_batches: 4, label: 'Aggressive (~22GB)'
         },
     },
 
@@ -116,9 +116,13 @@ const TrainerUI = {
         statusEl.className = 'text-xs text-yellow-400';
         convertBtn.disabled = true;
 
+        // Read trigger word from IndexedDB
+        const triggerWord = await DB.getMeta('triggerWord') || '';
+
         try {
             const result = await Utils.apiPost('/api/dataset/convert', {
                 output_name: name,
+                trigger_word: triggerWord,
             });
 
             if (result.success) {
@@ -247,11 +251,13 @@ const TrainerUI = {
             lora_r: parseInt(document.getElementById('cfg-lora-r').value) || 64,
             lora_alpha: parseInt(document.getElementById('cfg-lora-alpha').value) || 32,
             use_rslora: document.getElementById('cfg-rslora').checked,
+            lora_dropout: parseFloat(document.getElementById('cfg-lora-dropout').value) || 0.1,
             target_modules: modules,
             learning_rate: parseFloat(document.getElementById('cfg-lr').value) || 1e-4,
             max_steps: parseInt(document.getElementById('cfg-max-steps').value) || 5000,
             precision: document.getElementById('cfg-precision').value,
-            accumulate_grad_batches: parseInt(document.getElementById('cfg-grad-accum').value) || 1,
+            lr_scheduler: document.getElementById('cfg-lr-scheduler').value,
+            accumulate_grad_batches: parseInt(document.getElementById('cfg-grad-accum').value) || 4,
             gradient_clip_val: parseFloat(document.getElementById('cfg-grad-clip').value) || 0.5,
             shift: parseFloat(document.getElementById('cfg-shift').value) || 3.0,
             num_workers: parseInt(document.getElementById('cfg-workers').value) || 4,

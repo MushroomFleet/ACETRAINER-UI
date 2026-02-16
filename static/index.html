@@ -49,6 +49,8 @@
             <div class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center gap-3 flex-shrink-0 flex-wrap">
                 <label class="text-sm text-gray-400">Dataset:</label>
                 <input id="dataset-name" type="text" value="my_lora_dataset" class="input-field w-48 text-sm" placeholder="Dataset name">
+                <label class="text-sm text-gray-400">Trigger:</label>
+                <input id="trigger-word" type="text" value="" class="input-field w-36 text-sm font-mono" placeholder="e.g. MYTRIGGER">
                 <div class="flex items-center gap-1 text-sm">
                     <span class="text-gray-500">Samples:</span>
                     <span id="sample-count" class="font-mono text-green-400">0</span>
@@ -61,6 +63,7 @@
                 </div>
                 <div class="flex-1"></div>
                 <button id="btn-add-files" class="btn btn-primary text-sm">+ Add MP3s</button>
+                <button id="btn-caption-all" class="btn btn-secondary text-sm">Caption All</button>
                 <button id="btn-import-zip" class="btn btn-secondary text-sm">Import ZIP</button>
                 <button id="btn-export-zip" class="btn btn-secondary text-sm">Export ZIP</button>
                 <button id="btn-clear-all" class="btn btn-danger text-sm">Clear All</button>
@@ -120,11 +123,17 @@
 
                             <!-- Prompt Tags -->
                             <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-400 mb-1">
-                                    Prompt Tags <span class="text-gray-600">(_prompt.txt)</span>
-                                </label>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-sm font-medium text-gray-400">
+                                        Prompt Tags <span class="text-gray-600">(_prompt.txt)</span>
+                                    </label>
+                                    <button id="btn-auto-caption" class="btn btn-secondary btn-sm">
+                                        Auto-Caption
+                                    </button>
+                                </div>
                                 <textarea id="editor-prompt" rows="3" class="input-field w-full"
                                     placeholder="genre, vocal type, instruments, mood/energy, tempo (e.g. 120 bpm), key (e.g. minor key)"></textarea>
+                                <div id="caption-details" class="hidden mt-2 p-2 bg-gray-800 rounded text-xs text-gray-500 font-mono"></div>
                                 <p class="text-xs text-gray-600 mt-1">Comma-separated audio description tags: genre, vocal, instruments, mood, tempo, key.</p>
                             </div>
 
@@ -276,6 +285,10 @@
                                     <label>Use RS-LoRA</label>
                                     <input id="cfg-rslora" type="checkbox" checked class="w-4 h-4">
                                 </div>
+                                <div class="form-row">
+                                    <label>LoRA Dropout</label>
+                                    <input id="cfg-lora-dropout" type="number" value="0.1" min="0" max="0.5" step="0.05" class="input-field w-24 text-sm">
+                                </div>
                                 <div>
                                     <label class="text-xs text-gray-500">Target Modules</label>
                                     <div class="flex flex-wrap gap-2 mt-1">
@@ -299,6 +312,13 @@
                                     <input id="cfg-lr" type="text" value="1e-4" class="input-field w-24 text-sm">
                                 </div>
                                 <div class="form-row">
+                                    <label>LR Schedule</label>
+                                    <select id="cfg-lr-scheduler" class="input-field w-44 text-sm">
+                                        <option value="cosine_restarts" selected>Cosine Restarts (recommended)</option>
+                                        <option value="linear">Linear Decay</option>
+                                    </select>
+                                </div>
+                                <div class="form-row">
                                     <label>Max Steps</label>
                                     <input id="cfg-max-steps" type="number" value="5000" min="100" max="2000000" class="input-field w-28 text-sm">
                                 </div>
@@ -312,7 +332,7 @@
                                 </div>
                                 <div class="form-row">
                                     <label>Grad Accumulation</label>
-                                    <input id="cfg-grad-accum" type="number" value="1" min="1" max="32" class="input-field w-20 text-sm">
+                                    <input id="cfg-grad-accum" type="number" value="4" min="1" max="32" class="input-field w-20 text-sm">
                                 </div>
                                 <div class="form-row">
                                     <label>Gradient Clip</label>

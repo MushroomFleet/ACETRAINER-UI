@@ -93,6 +93,7 @@ def convert():
 
     body = request.get_json() or {}
     output_name = body.get("output_name", "lora_dataset")
+    trigger_word = body.get("trigger_word", "")
 
     # Capture app config values we need inside the thread
     work_dir = current_app.config["WORK_DIR"]
@@ -111,6 +112,7 @@ def convert():
                 work_dir=work_dir,
                 output_name=output_name,
                 progress_callback=lambda msg: _convert_state.update({"progress": msg}),
+                trigger_word=trigger_word,
             )
             _convert_state["result"] = result
             _convert_state["progress"] = "Done"
