@@ -147,3 +147,24 @@ See [USER-GUIDE.md](USER-GUIDE.md) for detailed training guidance including:
 - `num_workers` is forced to 0 on Windows due to multiprocessing limitations with py3langid
 - `bf16-mixed` precision breaks LoRA gradients — always use `bf16-true`
 - DDP is unavailable on Windows (no NCCL) — single GPU only with `strategy="auto"`
+
+## 📚 Citation
+
+### Academic Citation
+
+If you use this codebase in your research or project, please cite:
+
+```bibtex
+@software{acetrainer_ui,
+  title = {ACETRAINER UI: Music generation LoRA Trainer},
+  author = {[Drift Johnson]},
+  year = {2025},
+  url = {https://github.com/MushroomFleet/ACETRAINER-UI},
+  version = {1.0.0}
+}
+```
+
+### Donate:
+
+
+[![Ko-Fi](https://cdn.ko-fi.com/cdn/kofi3.png?v=3)](https://ko-fi.com/driftjohnson)
