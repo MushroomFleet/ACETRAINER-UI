@@ -4,12 +4,14 @@ Exposes a simple generate_caption() function for the API layer.
 """
 
 import os
+import threading
 from backend.captioner.audio_preprocessor import preprocess_mp3, cleanup_chunks
 from backend.captioner.embedder import ImageBindEmbedder
 from backend.captioner.classifier import classify_song
 
 
 # Module-level state for the background batch captioning job
+_batch_lock = threading.Lock()
 _batch_state = {
     "running": False,
     "total": 0,
@@ -21,7 +23,8 @@ _batch_state = {
 
 
 def get_batch_state() -> dict:
-    return dict(_batch_state)
+    with _batch_lock:
+        return dict(_batch_state)
 
 
 def generate_caption(
@@ -81,23 +84,24 @@ def caption_batch(stems: list, data_dir: str, cache_dir: str = None):
         data_dir: Path to the server data directory containing MP3 files.
         cache_dir: Directory for text embedding cache persistence.
     """
-    global _batch_state
-
-    _batch_state["running"] = True
-    _batch_state["total"] = len(stems)
-    _batch_state["completed"] = 0
-    _batch_state["current_file"] = ""
-    _batch_state["results"] = {}
-    _batch_state["error"] = None
+    with _batch_lock:
+        _batch_state["running"] = True
+        _batch_state["total"] = len(stems)
+        _batch_state["completed"] = 0
+        _batch_state["current_file"] = ""
+        _batch_state["results"] = {}
+        _batch_state["error"] = None
 
     try:
         for stem in stems:
             mp3_path = os.path.join(data_dir, f"{stem}.mp3")
             if not os.path.exists(mp3_path):
-                _batch_state["completed"] += 1
+                with _batch_lock:
+                    _batch_state["completed"] += 1
                 continue
 
-            _batch_state["current_file"] = stem
+            with _batch_lock:
+                _batch_state["current_file"] = stem
 
             # Read the existing prompt to check instrumental status
             prompt_path = os.path.join(data_dir, f"{stem}_prompt.txt")
@@ -110,14 +114,19 @@ def caption_batch(stems: list, data_dir: str, cache_dir: str = None):
                 caption, details, audio_dict = generate_caption(
                     mp3_path, is_instrumental=is_instrumental, cache_dir=cache_dir
                 )
-                _batch_state["results"][stem] = caption
+                with _batch_lock:
+                    _batch_state["results"][stem] = caption
             except Exception as e:
-                _batch_state["results"][stem] = f"ERROR: {e}"
+                with _batch_lock:
+                    _batch_state["results"][stem] = f"ERROR: {e}"
 
-            _batch_state["completed"] += 1
+            with _batch_lock:
+                _batch_state["completed"] += 1
 
     except Exception as e:
-        _batch_state["error"] = str(e)
+        with _batch_lock:
+            _batch_state["error"] = str(e)
     finally:
-        _batch_state["running"] = False
-        _batch_state["current_file"] = ""
+        with _batch_lock:
+            _batch_state["running"] = False
+            _batch_state["current_file"] = ""

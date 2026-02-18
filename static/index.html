@@ -9,6 +9,7 @@
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
 </head>
 <body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col">
 
@@ -35,6 +36,10 @@
             <button class="tab-btn" data-tab="trainer">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                 Trainer
+            </button>
+            <button class="tab-btn" data-tab="visualization">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                Visualization
             </button>
         </div>
     </nav>
@@ -355,10 +360,6 @@
                                     <label>Plot Every N Steps</label>
                                     <input id="cfg-plot-every" type="number" value="1000" min="100" class="input-field w-24 text-sm">
                                 </div>
-                                <div class="form-row">
-                                    <label>Num Workers</label>
-                                    <input id="cfg-workers" type="number" value="4" min="0" max="16" class="input-field w-20 text-sm">
-                                </div>
                             </div>
                         </div>
                     </section>
@@ -441,6 +442,92 @@
                 </div>
             </div>
         </div>
+
+        <!-- ==================== VISUALIZATION TAB ==================== -->
+        <div id="tab-visualization" class="tab-content h-full flex flex-col" style="display:none;">
+            <div class="flex-1 overflow-y-auto">
+                <div class="max-w-6xl mx-auto p-6 space-y-4">
+
+                    <!-- Header -->
+                    <section class="card">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="card-title" style="margin-bottom:0.25rem">PaCMAP Embedding Visualization</h3>
+                                <p class="text-xs text-gray-500">
+                                    Real-time 2D projections of audio latent space, LoRA outputs, and prompt embeddings during training.
+                                </p>
+                            </div>
+                            <span id="viz-status-badge" class="text-xs px-2 py-1 rounded-full bg-gray-800 text-gray-500">Waiting for data</span>
+                        </div>
+                    </section>
+
+                    <!-- Controls -->
+                    <section class="card">
+                        <div class="flex items-center gap-3 flex-wrap">
+                            <button id="viz-refresh-btn" class="btn btn-primary btn-sm">Refresh Now</button>
+                            <button id="viz-toggle-auto" class="btn btn-secondary btn-sm">Pause Auto-Update</button>
+                            <button id="viz-save-snapshot" class="btn btn-secondary btn-sm">Save Snapshot</button>
+                            <button id="viz-create-animation" class="btn btn-secondary btn-sm">Create Animation</button>
+                            <button id="viz-clear-all" class="btn btn-danger btn-sm">Clear All Data</button>
+                            <div class="flex-1"></div>
+                            <label class="flex items-center gap-1 text-xs text-gray-500">
+                                <input id="viz-auto-save" type="checkbox" checked class="w-3 h-3"> Auto-save
+                            </label>
+                            <label class="text-xs text-gray-500">Update Interval:</label>
+                            <select id="viz-interval-select" class="input-field text-xs" style="width:auto;min-width:100px;">
+                                <option value="5000">5s</option>
+                                <option value="10000">10s</option>
+                                <option value="15000" selected>15s</option>
+                                <option value="30000">30s</option>
+                                <option value="60000">60s</option>
+                            </select>
+                        </div>
+                    </section>
+
+                    <!-- Stats -->
+                    <section id="viz-stats" class="grid grid-cols-3 gap-3">
+                        <div class="metric-box">
+                            <span class="metric-label">Latent Space</span>
+                            <span id="viz-stat-latent" class="metric-value text-sm">0 samples</span>
+                        </div>
+                        <div class="metric-box">
+                            <span class="metric-label">LoRA Outputs</span>
+                            <span id="viz-stat-lora" class="metric-value text-sm">0 samples</span>
+                        </div>
+                        <div class="metric-box">
+                            <span class="metric-label">Prompt Space</span>
+                            <span id="viz-stat-prompt" class="metric-value text-sm">0 samples</span>
+                        </div>
+                    </section>
+
+                    <!-- Main Plot -->
+                    <section class="card" style="padding:0.75rem;">
+                        <div id="viz-plot-container" style="width:100%;height:520px;position:relative;">
+                            <div id="viz-empty-state" class="flex flex-col items-center justify-center h-full text-gray-600">
+                                <svg class="w-16 h-16 mb-3 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                                <p class="text-sm">Waiting for training data...</p>
+                                <p class="text-xs text-gray-700 mt-1">Embeddings will appear once training begins and hooks capture data.</p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Guide -->
+                    <section class="card">
+                        <button id="viz-guide-toggle" class="w-full text-left text-sm text-gray-400 hover:text-gray-200 flex items-center gap-2">
+                            <svg id="viz-guide-chevron" class="w-4 h-4 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                            Understanding the Visualization
+                        </button>
+                        <div id="viz-guide-content" class="hidden mt-3 text-xs text-gray-500 space-y-2">
+                            <p><strong class="text-gray-400">Latent Space (left):</strong> Audio samples in the DCAE encoder's latent representation. Similar-sounding audio clusters together. Watch for genre/style separation as training progresses.</p>
+                            <p><strong class="text-gray-400">LoRA Outputs (center):</strong> How LoRA adapter layers transform representations. Colored by layer name. Clustering by layer shows specialization. If all layers look identical, LoRA may not be learning.</p>
+                            <p><strong class="text-gray-400">Prompt Space (right):</strong> Text prompt embeddings from the text encoder. Similar prompts should cluster. Watch for genre groupings and trigger word separation.</p>
+                            <p><strong class="text-gray-400">Color = training step</strong> (latent & prompt panels). Early steps are dark, late steps are bright. Structure should increase over time.</p>
+                        </div>
+                    </section>
+
+                </div>
+            </div>
+        </div>
     </main>
 
     <!-- Toast Container -->
@@ -472,5 +559,6 @@
     <script src="/static/js/app.js"></script>
     <script src="/static/js/dataset-editor.js"></script>
     <script src="/static/js/trainer-ui.js"></script>
+    <script src="/static/js/visualization_panel.js"></script>
 </body>
 </html>

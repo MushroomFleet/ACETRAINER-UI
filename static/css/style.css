@@ -256,5 +256,27 @@ audio::-webkit-media-controls-panel { background: #374151; }
     50% { opacity: 0.5; }
 }
 
+/* ===== Visualization Panel ===== */
+#viz-plot-container {
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+#viz-plot-container .js-plotly-plot,
+#viz-plot-container .plotly {
+    border-radius: 0.5rem;
+}
+
+/* Override Plotly modebar to match dark theme */
+#viz-plot-container .modebar {
+    background: transparent !important;
+}
+#viz-plot-container .modebar-btn path {
+    fill: #6b7280 !important;
+}
+#viz-plot-container .modebar-btn:hover path {
+    fill: #a78bfa !important;
+}
+
 /* ===== Utility ===== */
 .hidden { display: none !important; }

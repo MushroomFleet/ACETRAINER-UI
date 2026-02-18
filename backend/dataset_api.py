@@ -5,7 +5,8 @@ Dataset API — Flask Blueprint for dataset CRUD, validation, conversion, and ZI
 import os
 import tempfile
 import threading
-from flask import Blueprint, request, jsonify, current_app, send_file
+from flask import Blueprint, request, jsonify, current_app, send_from_directory
+from werkzeug.utils import secure_filename
 from backend import dataset_service as ds
 
 # eventlet.monkey_patch() replaces threading.Thread with a green-thread version.
@@ -21,6 +22,8 @@ except Exception:
 dataset_bp = Blueprint("dataset", __name__)
 
 # ===== Background conversion state =====
+import threading as _threading
+_convert_lock = _threading.Lock()
 _convert_state = {
     "running": False,
     "progress": "",
@@ -42,9 +45,12 @@ def upload_files():
     for key in request.files:
         file_obj = request.files[key]
         if file_obj.filename:
-            dest = os.path.join(data_dir, file_obj.filename)
+            safe_name = secure_filename(file_obj.filename)
+            if not safe_name:
+                continue
+            dest = os.path.join(data_dir, safe_name)
             file_obj.save(dest)
-            saved.append(file_obj.filename)
+            saved.append(safe_name)
 
     return jsonify({"saved": saved, "count": len(saved)})
 
@@ -86,11 +92,6 @@ def convert():
     Start dataset conversion in a background thread.
     Returns immediately with status. Poll /convert-status for progress.
     """
-    global _convert_state
-
-    if _convert_state["running"]:
-        return jsonify({"success": False, "error": "Conversion already in progress"}), 409
-
     body = request.get_json() or {}
     output_name = body.get("output_name", "lora_dataset")
     trigger_word = body.get("trigger_word", "")
@@ -98,29 +99,37 @@ def convert():
     # Capture app config values we need inside the thread
     work_dir = current_app.config["WORK_DIR"]
 
-    # Reset state
-    _convert_state["running"] = True
-    _convert_state["progress"] = "Starting conversion..."
-    _convert_state["result"] = None
-    _convert_state["error"] = None
+    with _convert_lock:
+        if _convert_state["running"]:
+            return jsonify({"success": False, "error": "Conversion already in progress"}), 409
+        _convert_state["running"] = True
+        _convert_state["progress"] = "Starting conversion..."
+        _convert_state["result"] = None
+        _convert_state["error"] = None
 
     def run_conversion():
-        global _convert_state
+        def _update_progress(msg):
+            with _convert_lock:
+                _convert_state["progress"] = msg
+
         try:
-            _convert_state["progress"] = "Reading data files..."
+            _update_progress("Reading data files...")
             result = ds.convert_to_hf_dataset_standalone(
                 work_dir=work_dir,
                 output_name=output_name,
-                progress_callback=lambda msg: _convert_state.update({"progress": msg}),
+                progress_callback=_update_progress,
                 trigger_word=trigger_word,
             )
-            _convert_state["result"] = result
-            _convert_state["progress"] = "Done"
+            with _convert_lock:
+                _convert_state["result"] = result
+                _convert_state["progress"] = "Done"
         except Exception as e:
-            _convert_state["error"] = str(e)
-            _convert_state["progress"] = f"Error: {e}"
+            with _convert_lock:
+                _convert_state["error"] = str(e)
+                _convert_state["progress"] = f"Error: {e}"
         finally:
-            _convert_state["running"] = False
+            with _convert_lock:
+                _convert_state["running"] = False
 
     # Must use a *real* OS thread (not eventlet's green-thread wrapper) so that
     # HF Datasets' memory-mapped Arrow I/O isn't routed through eventlet's patched
@@ -134,12 +143,13 @@ def convert():
 @dataset_bp.route("/convert-status", methods=["GET"])
 def convert_status():
     """Poll for conversion progress."""
-    return jsonify({
-        "running": _convert_state["running"],
-        "progress": _convert_state["progress"],
-        "result": _convert_state["result"],
-        "error": _convert_state["error"],
-    })
+    with _convert_lock:
+        return jsonify({
+            "running": _convert_state["running"],
+            "progress": _convert_state["progress"],
+            "result": _convert_state["result"],
+            "error": _convert_state["error"],
+        })
 
 
 @dataset_bp.route("/info", methods=["GET"])
@@ -251,7 +261,7 @@ def list_files():
 def serve_audio(stem):
     """Serve an audio file for playback in the browser."""
     data_dir = ds.get_data_dir()
-    mp3_path = os.path.join(data_dir, f"{stem}.mp3")
-    if not os.path.exists(mp3_path):
+    try:
+        return send_from_directory(data_dir, f"{stem}.mp3", mimetype="audio/mpeg")
+    except FileNotFoundError:
         return jsonify({"error": "Audio file not found"}), 404
-    return send_file(mp3_path, mimetype="audio/mpeg")

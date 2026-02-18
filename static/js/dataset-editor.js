@@ -676,14 +676,16 @@ const DatasetEditor = {
         lines.push(`Mood: ${moods}`);
         lines.push(`Tempo: ${details.tempo.label} (${details.tempo.confidence})`);
         lines.push(`Key: ${details.key.label} (${details.key.confidence})`);
+        if (details.timbre) lines.push(`Timbre: ${details.timbre.label} (${details.timbre.confidence})`);
+        if (details.era) lines.push(`Era: ${details.era.label} (${details.era.confidence})`);
+        if (details.production) lines.push(`Production: ${details.production.label} (${details.production.confidence})`);
+        if (details.energy) lines.push(`Energy: ${details.energy.label} (${details.energy.confidence})`);
         return lines.join('<br>');
     },
 
     // ===== Utility =====
     escHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     },
 };
 

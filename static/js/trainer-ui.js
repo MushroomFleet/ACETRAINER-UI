@@ -260,7 +260,6 @@ const TrainerUI = {
             accumulate_grad_batches: parseInt(document.getElementById('cfg-grad-accum').value) || 4,
             gradient_clip_val: parseFloat(document.getElementById('cfg-grad-clip').value) || 0.5,
             shift: parseFloat(document.getElementById('cfg-shift').value) || 3.0,
-            num_workers: parseInt(document.getElementById('cfg-workers').value) || 4,
             save_every: parseInt(document.getElementById('cfg-save-every').value) || 500,
             plot_every: parseInt(document.getElementById('cfg-plot-every').value) || 1000,
         };

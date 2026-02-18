@@ -1,0 +1,57 @@
+Dimension     Examples
+Style/Genre     pop, rock, jazz, electronic, hip-hop, R&B, folk, classical, lo-fi, synthwave
+Emotion/Atmosphere     melancholic, uplifting, energetic, dreamy, dark, nostalgic, euphoric, intimate
+Instruments     acoustic guitar, piano, synth pads, 808 drums, strings, brass, electric bass
+Timbre Texture     warm, bright, crisp, muddy, airy, punchy, lush, raw, polished
+Era Reference     80s synth-pop, 90s grunge, 2010s EDM, vintage soul, modern trap
+Production Style     lo-fi, high-fidelity, live recording, studio-polished, bedroom pop
+Vocal Characteristics     female vocal, male vocal, breathy, powerful, falsetto, raspy, choir
+Speed/Rhythm     slow tempo, mid-tempo, fast-paced, groovy, driving, laid-back
+Structure Hints     building intro, catchy chorus, dramatic bridge, fade-out ending
+The lyric text itself
+    Structure tags ([Verse], [Chorus], [Bridge]...)
+    Vocal style hints ([raspy vocal], [whispered]...)
+    Instrumental sections ([guitar solo], [drum break]...)
+    Energy changes ([building energy], [explosive drop]...)
+Category     Tag     Description
+Basic Structure     [Intro]     Opening, establish atmosphere
+    [Verse] / [Verse 1]     Verse, narrative progression
+    [Pre-Chorus]     Pre-chorus, build energy
+    [Chorus]     Chorus, emotional climax
+    [Bridge]     Bridge, transition or elevation
+    [Outro]     Ending, conclusion
+Dynamic Sections     [Build]     Energy gradually rising
+    [Drop]     Electronic music energy release
+    [Breakdown]     Reduced instrumentation, space
+Instrumental Sections     [Instrumental]     Pure instrumental, no vocals
+    [Guitar Solo]     Guitar solo
+    [Piano Interlude]     Piano interlude
+Special Tags     [Fade Out]     Fade out ending
+    [Silence]     Silence
+Tag     Effect
+[raspy vocal]     Raspy, textured vocals
+[whispered]     Whispered
+[falsetto]     Falsetto
+[powerful belting]     Powerful, high-pitched singing
+[spoken word]     Rap/recitation
+[harmonies]     Layered harmonies
+[call and response]     Call and response
+[ad-lib]     Improvised embellishments
+Tag     Effect
+[high energy]     High energy, passionate
+[low energy]     Low energy, restrained
+[building energy]     Increasing energy
+[explosive]     Explosive energy
+[melancholic]     Melancholic
+[euphoric]     Euphoric
+[dreamy]     Dreamy
+[aggressive]     Aggressive
+-----------------------------------------
+Tags to not use so the fuckup list
+
+Red Flag 🚩     Description
+Adjective stacking     "neon skies, electric hearts, endless dreams"—filling a section with vague imagery
+Rhyme chaos     Inconsistent rhyme patterns, or forced rhymes causing semantic breaks
+Blurred section boundaries     Lyric content crosses structure tags, Verse content "flows" into Chorus
+No breathing room     Each line too long, can't sing in one breath
+Mixed metaphors     First verse uses water imagery, second suddenly becomes fire, third is flying—listeners can't anchor
