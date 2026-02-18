@@ -251,3 +251,24 @@ See [USER-GUIDE.md](USER-GUIDE.md) for detailed training guidance including:
 ## Changelog
 
 - [v1.5.0-beta](changelog-v1.5.0-beta.md) -- 10-dimension captioner, security hardening, stability fixes
+
+## 📚 Citation
+
+### Academic Citation
+
+If you use this codebase in your research or project, please cite:
+
+```bibtex
+@software{acetrainer_ui,
+  title = {ACETRAINER UI: Music generation LoRA Trainer},
+  author = {[Drift Johnson]},
+  year = {2025},
+  url = {https://github.com/MushroomFleet/ACETRAINER-UI},
+  version = {1.0.0}
+}
+```
+
+### Donate:
+
+
+[![Ko-Fi](https://cdn.ko-fi.com/cdn/kofi3.png?v=3)](https://ko-fi.com/driftjohnson)
