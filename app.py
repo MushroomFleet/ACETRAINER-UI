@@ -36,13 +36,18 @@ socketio = SocketIO(app, cors_allowed_origins="*", max_http_buffer_size=200 * 10
 from backend.dataset_api import dataset_bp
 from backend.trainer_api import trainer_bp
 from backend.captioner_api import captioner_bp
+from backend.visualization_api import viz_bp, register_viz_socketio_handlers
 
 app.register_blueprint(dataset_bp, url_prefix="/api/dataset")
 app.register_blueprint(trainer_bp, url_prefix="/api/trainer")
 app.register_blueprint(captioner_bp, url_prefix="/api/captioner")
+app.register_blueprint(viz_bp)
 
 # Make socketio accessible to blueprints
 app.config["SOCKETIO"] = socketio
+
+# Register visualization Socket.IO event handlers
+register_viz_socketio_handlers(socketio)
 
 
 @app.route("/")
