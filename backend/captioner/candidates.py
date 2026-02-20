@@ -25,6 +25,9 @@ VOCAL_CANDIDATES = [
     "vocal group choir", "rapping vocal", "spoken word vocal",
     "auto-tuned vocal", "whispered vocal", "falsetto vocal",
     "operatic vocal", "screaming vocal", "humming vocal",
+    # --- new from aceset classifiers ---
+    "breathy vocal", "raspy vocal", "powerful belting vocal",
+    "harmonies vocal", "call and response vocal", "ad-lib vocal",
 ]
 
 INSTRUMENT_CANDIDATES = [
@@ -73,4 +76,35 @@ KEY_CANDIDATES = [
     "music in the key of F sharp major", "music in the key of F sharp minor",
     "music in the key of G sharp minor", "music in the key of A flat major",
     "music in the key of B flat major", "music in the key of B flat minor",
+]
+
+TIMBRE_CANDIDATES = [
+    "warm sound", "bright sound", "crisp sound", "muddy sound",
+    "airy sound", "punchy sound", "lush sound", "raw sound",
+    "polished sound", "thin sound", "thick sound", "harsh sound",
+    "smooth sound", "gritty sound", "clean sound", "distorted sound",
+    "hollow sound", "full sound", "dry sound", "reverberant sound",
+    "saturated sound", "compressed sound", "lo-fi sound", "hi-fi sound",
+]
+
+ERA_CANDIDATES = [
+    "1950s rock and roll era", "1960s psychedelic era", "1970s disco funk era",
+    "1980s synth-pop new wave era", "1990s grunge alternative era",
+    "2000s pop R&B era", "2010s EDM trap era", "2020s hyperpop modern era",
+    "vintage retro era", "classic era", "modern contemporary era",
+    "futuristic era",
+]
+
+PRODUCTION_CANDIDATES = [
+    "lo-fi production", "high-fidelity production", "live recording production",
+    "studio-polished production", "bedroom pop production", "overdriven production",
+    "minimalist production", "maximalist production", "heavily layered production",
+    "sparse production", "analog production", "digital production",
+    "sample-based production", "acoustic production",
+]
+
+ENERGY_CANDIDATES = [
+    "very low energy", "low energy", "moderate energy", "high energy",
+    "very high energy", "explosive energy", "building energy",
+    "declining energy", "steady energy", "fluctuating energy",
 ]

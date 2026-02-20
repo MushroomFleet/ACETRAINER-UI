@@ -3,6 +3,7 @@ Trainer API — Flask Blueprint for training control, monitoring, and TensorBoar
 """
 
 import os
+import atexit
 import subprocess
 import sys
 from flask import Blueprint, request, jsonify, current_app
@@ -11,6 +12,15 @@ from backend.trainer_service import trainer_service, get_gpu_stats
 trainer_bp = Blueprint("trainer", __name__)
 
 _tensorboard_process = None
+
+
+def _cleanup_tensorboard():
+    global _tensorboard_process
+    if _tensorboard_process and _tensorboard_process.poll() is None:
+        _tensorboard_process.terminate()
+
+
+atexit.register(_cleanup_tensorboard)
 
 
 @trainer_bp.route("/start", methods=["POST"])

@@ -127,6 +127,19 @@ class TrainerService:
 
         try:
             env = os.environ.copy()
+
+            # Set visualization save directory for the subprocess to write embeddings
+            try:
+                from backend.visualization_service import get_visualizer
+                exp_name = config.get("exp_name", "lora_experiment")
+                import datetime
+                ts = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                viz_save_dir = os.path.join(logger_dir, "lightning_logs", f"{ts}{exp_name}", "viz_snapshots")
+                env["ACETRAINER_VIZ_DIR"] = viz_save_dir
+                get_visualizer().set_save_dir(viz_save_dir)
+            except Exception as e:
+                print(f"[TrainerService] Could not set viz save dir (non-fatal): {e}")
+
             # Use the stdlib subprocess (not eventlet-patched) to avoid blocking
             import subprocess as _subprocess
             self.process = _subprocess.Popen(
@@ -263,6 +276,22 @@ class TrainerService:
                 "error_summary": error_summary,
             })
 
+            # Assemble visualization animation from saved PNG snapshots
+            try:
+                from backend.visualization_service import get_visualizer
+                viz = get_visualizer()
+                if viz.save_dir:
+                    created = viz.create_animation(viz.save_dir)
+                    if created and self._socketio:
+                        self._socketio.emit(
+                            "animation_ready",
+                            {"success": True, "created": created},
+                            namespace="/visualization",
+                        )
+                        print(f"[TrainerService] Animation created: {list(created.keys())}")
+            except Exception as e:
+                print(f"[TrainerService] Animation creation failed (non-fatal): {e}")
+
     def _parse_metrics(self, line):
         """Extract step number and loss values from PyTorch Lightning log output."""
         metrics = {}
@@ -337,7 +366,7 @@ class TrainerService:
                     self._emit("gpu_stats", stats)
             except Exception:
                 pass
-            time.sleep(5)
+            eventlet.sleep(5)
 
     def get_metrics_history(self):
         return self.metrics_history

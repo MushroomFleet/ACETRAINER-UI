@@ -196,40 +196,63 @@ const TrainerUI = {
         const editorStatusEl = document.getElementById('editor-dataset-status');
         const convertStatusEl = document.getElementById('convert-status');
 
-        // Check if HF dataset already exists
+        // Always check both the existing HF dataset AND the raw files on the server.
+        // Compare counts to detect stale datasets that need reconversion.
+        let hfInfo = null;
+        let rawCount = 0;
+        let rawValid = false;
+        let rawInvalidCount = 0;
+
+        // 1. Check if HF dataset already exists
         try {
             const info = await Utils.apiGet(`/api/dataset/info?name=${encodeURIComponent(name)}`);
             if (info && info.found) {
-                editorStatusEl.textContent = `(${info.unique_samples} samples)`;
-                editorStatusEl.className = 'text-xs text-green-400';
-                convertStatusEl.textContent = `Ready: ${info.unique_samples} samples`;
-                convertStatusEl.className = 'text-xs text-green-400';
-                this.showDatasetInfo(info);
-                return; // HF dataset exists, no need to check raw files
+                hfInfo = info;
             }
         } catch (e) {
-            // Silently continue — will check raw files below
+            // No existing HF dataset — that's fine
         }
 
-        // Check raw data files on server
+        // 2. Always check raw data files on server
         try {
             const val = await Utils.apiGet('/api/dataset/validate');
-            if (val.total > 0) {
-                if (val.valid) {
-                    editorStatusEl.textContent = `(${val.total} samples on server, ready to convert)`;
-                    editorStatusEl.className = 'text-xs text-green-400';
-                    convertStatusEl.textContent = `${val.total} samples ready — click Convert`;
-                    convertStatusEl.className = 'text-xs text-gray-400';
-                } else {
-                    editorStatusEl.textContent = `(${val.total} samples on server, ${val.invalid_count} invalid)`;
-                    editorStatusEl.className = 'text-xs text-yellow-400';
-                }
-            } else {
-                editorStatusEl.textContent = '(no data on server yet)';
-                editorStatusEl.className = 'text-xs text-gray-500';
-            }
+            rawCount = val.total || 0;
+            rawValid = !!val.valid;
+            rawInvalidCount = val.invalid_count || 0;
         } catch (e) {
-            // Silently ignore
+            // Server may not have data yet
+        }
+
+        // 3. Decide what to display based on both sources
+        if (hfInfo && rawCount > 0 && hfInfo.unique_samples !== rawCount) {
+            // STALE: HF dataset exists but sample count doesn't match raw files
+            editorStatusEl.textContent = `(${rawCount} samples on server, dataset outdated)`;
+            editorStatusEl.className = 'text-xs text-yellow-400';
+            convertStatusEl.textContent = `Stale: dataset has ${hfInfo.unique_samples} but server has ${rawCount} — click Convert`;
+            convertStatusEl.className = 'text-xs text-yellow-400';
+            this.showDatasetInfo(hfInfo);
+        } else if (hfInfo && (rawCount === 0 || hfInfo.unique_samples === rawCount)) {
+            // HF dataset exists and matches raw files (or no raw files to compare)
+            editorStatusEl.textContent = `(${hfInfo.unique_samples} samples)`;
+            editorStatusEl.className = 'text-xs text-green-400';
+            convertStatusEl.textContent = `Ready: ${hfInfo.unique_samples} samples`;
+            convertStatusEl.className = 'text-xs text-green-400';
+            this.showDatasetInfo(hfInfo);
+        } else if (rawCount > 0) {
+            // No HF dataset yet, but raw files exist
+            if (rawValid) {
+                editorStatusEl.textContent = `(${rawCount} samples on server, ready to convert)`;
+                editorStatusEl.className = 'text-xs text-green-400';
+                convertStatusEl.textContent = `${rawCount} samples ready — click Convert`;
+                convertStatusEl.className = 'text-xs text-gray-400';
+            } else {
+                editorStatusEl.textContent = `(${rawCount} samples on server, ${rawInvalidCount} invalid)`;
+                editorStatusEl.className = 'text-xs text-yellow-400';
+            }
+        } else {
+            // Nothing at all
+            editorStatusEl.textContent = '(no data on server yet)';
+            editorStatusEl.className = 'text-xs text-gray-500';
         }
     },
 
@@ -260,7 +283,6 @@ const TrainerUI = {
             accumulate_grad_batches: parseInt(document.getElementById('cfg-grad-accum').value) || 4,
             gradient_clip_val: parseFloat(document.getElementById('cfg-grad-clip').value) || 0.5,
             shift: parseFloat(document.getElementById('cfg-shift').value) || 3.0,
-            num_workers: parseInt(document.getElementById('cfg-workers').value) || 4,
             save_every: parseInt(document.getElementById('cfg-save-every').value) || 500,
             plot_every: parseInt(document.getElementById('cfg-plot-every').value) || 1000,
         };

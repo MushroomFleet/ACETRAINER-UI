@@ -22,6 +22,10 @@ class CaptionFields:
     mood: List[ClassificationResult]
     tempo: ClassificationResult
     key: ClassificationResult
+    timbre: ClassificationResult
+    era: ClassificationResult
+    production: ClassificationResult
+    energy: ClassificationResult
     is_instrumental: bool
 
     def to_caption_string(self) -> str:
@@ -43,7 +47,17 @@ class CaptionFields:
         # "music in the key of A minor" -> "A minor"
         key_str = self.key.label.replace("music in the key of ", "")
 
-        return f"{genre_str}, {vocal_str}, {instruments_str}, {mood_str}, {tempo_str}, {key_str}"
+        # New dimensions — strip trailing descriptor words for cleaner tags
+        timbre_str = self.timbre.label.replace(" sound", "")
+        era_str = self.era.label.replace(" era", "")
+        production_str = self.production.label.replace(" production", "")
+        energy_str = self.energy.label.replace(" energy", "")
+
+        return (
+            f"{genre_str}, {vocal_str}, {instruments_str}, {mood_str}, "
+            f"{tempo_str}, {key_str}, {timbre_str}, {era_str}, "
+            f"{production_str}, {energy_str}"
+        )
 
     def to_detail_dict(self) -> dict:
         """Return a JSON-serializable detail breakdown with confidence scores."""
@@ -75,6 +89,22 @@ class CaptionFields:
             "key": {
                 "label": self.key.label.replace("music in the key of ", ""),
                 "confidence": round(self.key.confidence, 3),
+            },
+            "timbre": {
+                "label": self.timbre.label.replace(" sound", ""),
+                "confidence": round(self.timbre.confidence, 3),
+            },
+            "era": {
+                "label": self.era.label.replace(" era", ""),
+                "confidence": round(self.era.confidence, 3),
+            },
+            "production": {
+                "label": self.production.label.replace(" production", ""),
+                "confidence": round(self.production.confidence, 3),
+            },
+            "energy": {
+                "label": self.energy.label.replace(" energy", ""),
+                "confidence": round(self.energy.confidence, 3),
             },
         }
 
@@ -110,7 +140,7 @@ def classify_song(
     text_cache: dict,
     is_instrumental: bool = False,
 ) -> CaptionFields:
-    """Run classification across all 6 dimensions."""
+    """Run classification across all 10 dimensions."""
     genre = classify_dimension(
         audio_embedding,
         text_cache["genre"]["embeddings"],
@@ -147,6 +177,31 @@ def classify_song(
         text_cache["key"]["labels"],
         top_k=1,
     )
+    # --- new dimensions ---
+    timbre = classify_dimension(
+        audio_embedding,
+        text_cache["timbre"]["embeddings"],
+        text_cache["timbre"]["labels"],
+        top_k=1,
+    )
+    era = classify_dimension(
+        audio_embedding,
+        text_cache["era"]["embeddings"],
+        text_cache["era"]["labels"],
+        top_k=1,
+    )
+    production = classify_dimension(
+        audio_embedding,
+        text_cache["production"]["embeddings"],
+        text_cache["production"]["labels"],
+        top_k=1,
+    )
+    energy = classify_dimension(
+        audio_embedding,
+        text_cache["energy"]["embeddings"],
+        text_cache["energy"]["labels"],
+        top_k=1,
+    )
 
     return CaptionFields(
         genre=genre[0],
@@ -155,5 +210,9 @@ def classify_song(
         mood=mood,
         tempo=tempo[0],
         key=key[0],
+        timbre=timbre[0],
+        era=era[0],
+        production=production[0],
+        energy=energy[0],
         is_instrumental=is_instrumental,
     )

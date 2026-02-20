@@ -33,8 +33,10 @@ def caption_single():
     audio_file = request.files["audio"]
     is_instrumental = request.form.get("is_instrumental", "false").lower() == "true"
 
-    # Save to temp file
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    # Save to temp file within the workspace
+    tmp_dir = os.path.join(current_app.config["WORK_DIR"], "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3", dir=tmp_dir)
     audio_file.save(tmp.name)
     tmp.close()
 

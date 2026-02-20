@@ -12,6 +12,7 @@ const App = {
         this.pollGPU();
         DatasetEditor.init();
         TrainerUI.init();
+        VizPanel.init();
     },
 
     // ===== Tab Navigation =====
@@ -40,6 +41,13 @@ const App = {
         // Refresh trainer dataset info when switching to trainer tab
         if (tabName === 'trainer') {
             TrainerUI.refreshDatasetInfo();
+        }
+
+        // Visualization tab activation/deactivation
+        if (tabName === 'visualization') {
+            VizPanel.onTabActivated();
+        } else {
+            VizPanel.onTabDeactivated();
         }
     },
 
